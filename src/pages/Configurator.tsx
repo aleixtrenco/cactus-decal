@@ -64,7 +64,9 @@ export default function Configurator() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => setView(STEP_VIEW[step]), [step])
+  useEffect(() => {
+    setView(STEP_VIEW[step])
+  }, [step])
 
   useEffect(() => {
     if (!toast) return

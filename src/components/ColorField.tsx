@@ -15,7 +15,9 @@ export default function ColorField({ value, onChange, label, allowGradient = tru
   const [end, setEnd] = useState<'a' | 'b'>('a')
   const current = isGrad && end === 'b' ? b : a
   const [hex, setHex] = useState(current.toUpperCase())
-  useEffect(() => setHex(current.toUpperCase()), [current])
+  useEffect(() => {
+    setHex(current.toUpperCase())
+  }, [current])
 
   const setColor = (c: string) => {
     if (!isGrad) onChange(c)

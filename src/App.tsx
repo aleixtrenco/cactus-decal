@@ -27,7 +27,11 @@ function RouteErrors({ children }: { children: ReactNode }) {
 
 function ScrollReset() {
   const { pathname } = useLocation()
-  useEffect(() => window.scrollTo(0, 0), [pathname])
+  // Braces matter: newer browsers return a Promise from scrollTo, and React
+  // would try to call a returned value as the effect's cleanup.
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
   return null
 }
 
