@@ -1,17 +1,29 @@
 import { MotionConfig } from 'framer-motion'
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 import { BrowserRouter, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { StageLoading } from './components/bits'
+import ErrorBoundary, { PageError } from './components/ErrorBoundary'
+import Configurator from './pages/Configurator'
 import Home from './pages/Home'
 import Result from './pages/Result'
 import { loadTemplates } from './lib/templates'
 
-const Configurator = lazy(() => import('./pages/Configurator'))
 const Admin = lazy(() => import('./pages/Admin'))
 
 // Sandboxed previews can't change the page URL, so they keep the route in
 // memory. The real site uses normal URLs (/configurator, /admin).
 const Router = import.meta.env.VITE_HASH_ROUTER ? MemoryRouter : BrowserRouter
+
+// A crash on one page shows a message instead of a blank screen, and is
+// cleared when the visitor moves to another page.
+function RouteErrors({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation()
+  return (
+    <ErrorBoundary key={pathname} fallback={(error, retry) => <PageError error={error} retry={retry} />}>
+      {children}
+    </ErrorBoundary>
+  )
+}
 
 function ScrollReset() {
   const { pathname } = useLocation()
@@ -28,6 +40,7 @@ export default function App() {
     <MotionConfig reducedMotion="user">
       <Router>
         <ScrollReset />
+        <RouteErrors>
         <Suspense fallback={<StageLoading />}>
           <Routes>
             <Route path="/" element={<Home />} />
@@ -38,6 +51,7 @@ export default function App() {
             <Route path="*" element={<Home />} />
           </Routes>
         </Suspense>
+        </RouteErrors>
       </Router>
     </MotionConfig>
   )

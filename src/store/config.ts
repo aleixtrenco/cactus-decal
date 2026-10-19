@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { BIKES, bikeById, makeInfo } from '../data/bikes'
+import { bikeById, makeInfo } from '../data/bikes'
 import { designById, NEON_HEXES, type DesignId, type LogoSlot, type NumberFont, type Palette } from '../data/designs'
 import type { ExtraId, FinishId, KitId, MaterialId, PriceInput } from '../data/pricing'
 
@@ -30,7 +30,8 @@ export interface KitConfig {
 export const defaultConfig = (): KitConfig => {
   const d = designById('dune')
   return {
-    bikeId: BIKES[0].id,
+    // Start on a bike with a real 3D model.
+    bikeId: 'husq-tcfc-16',
     designId: d.id,
     colors: { ...d.palette },
     plastics: 'black',

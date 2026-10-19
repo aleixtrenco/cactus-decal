@@ -2109,3 +2109,61 @@ p {
   stroke: #000;
   stroke-width: 0.008;
 }
+
+.error-detail {
+  max-width: 60ch;
+  margin: 0 auto 24px;
+  padding: 12px 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: left;
+  font-size: 13px;
+  color: var(--sand);
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.stage-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+.stage-fallback canvas {
+  width: min(100%, 720px);
+  height: auto;
+  margin: 0 auto;
+  background: #e9e6dc;
+  border-radius: var(--r-md);
+}
+.stage-fallback p {
+  color: var(--muted);
+  font-size: 14px;
+}
+.model-progress {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%);
+  width: min(260px, 70%);
+  display: grid;
+  gap: 8px;
+  text-align: center;
+  pointer-events: none;
+}
+.model-progress span {
+  display: block;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--cactus);
+  transition: width 0.3s;
+}
+.model-progress small {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}

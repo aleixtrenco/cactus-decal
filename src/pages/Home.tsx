@@ -9,6 +9,7 @@ import { DESIGNS } from '../data/designs'
 import { FINISHES, formatAED, KIT_PRICES, type FinishId } from '../data/pricing'
 import { FAQ } from '../data/site'
 
+const HERO_BIKE = 'husq-tcfc-16'
 const HERO_ROTATION = ['shamal', 'saguaro', 'falcon', 'dune', 'hex'] as const
 
 function Hero() {
@@ -23,7 +24,8 @@ function Hero() {
   }, [reduce])
 
   const id = HERO_ROTATION[i]
-  const cfg = useMemo(() => designPreview(id), [id])
+  // The hero shows the real Husqvarna model.
+  const cfg = useMemo(() => ({ ...designPreview(id), bikeId: HERO_BIKE }), [id])
   const name = DESIGNS.find((d) => d.id === id)!.name
 
   const line = {
@@ -141,7 +143,7 @@ const FEATURES: [IconName, string, string][] = [
 ]
 
 export default function Home() {
-  const promoCfg = useMemo(() => designPreview('saguaro'), [])
+  const promoCfg = useMemo(() => ({ ...designPreview('saguaro'), bikeId: HERO_BIKE }), [])
   return (
     <>
       <a href="#main" className="skip-link">

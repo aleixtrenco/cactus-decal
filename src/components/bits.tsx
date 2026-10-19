@@ -4,6 +4,7 @@ import { designById, type DesignId } from '../data/designs'
 import { drawProof } from '../lib/proof'
 import { ensureAssets } from '../lib/graphics'
 import { useTemplates } from '../lib/templates'
+import ErrorBoundary from './ErrorBoundary'
 import { defaultConfig, type KitConfig } from '../store/config'
 import type { StageApi, View } from '../three/Stage'
 
@@ -17,12 +18,44 @@ export function LazyStage(props: { cfg: KitConfig; view?: View; autoRotate?: boo
   return (
     <div ref={ref} style={{ position: 'absolute', inset: 0 }}>
       {near && (
-        <Suspense fallback={<StageLoading />}>
-          <motion.div style={{ position: 'absolute', inset: 0 }} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}>
-            <Stage {...props} />
-          </motion.div>
-        </Suspense>
+        <ErrorBoundary fallback={() => <StageFallback cfg={props.cfg} />}>
+          <Suspense fallback={<StageLoading />}>
+            <motion.div style={{ position: 'absolute', inset: 0 }} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}>
+              <Stage {...props} />
+            </motion.div>
+          </Suspense>
+          <ModelProgress />
+        </ErrorBoundary>
       )}
+    </div>
+  )
+}
+
+// Shown when 3D can't run on this device: the flat proof of the design.
+function StageFallback({ cfg }: { cfg: KitConfig }) {
+  return (
+    <div className="stage-fallback">
+      <ProofCanvas cfg={cfg} width={900} label="Design preview" />
+      <p>3D preview isn’t available on this device. This is your design laid flat.</p>
+    </div>
+  )
+}
+
+// Download progress of a real bike model, shown over the 3D view.
+function ModelProgress() {
+  const [state, setState] = useState<{ active: boolean; progress: number }>({ active: false, progress: 0 })
+  useEffect(() => {
+    let off = () => {}
+    import('@react-three/drei').then(({ useProgress }) => {
+      off = useProgress.subscribe((s) => setState({ active: s.active, progress: s.progress }))
+    })
+    return () => off()
+  }, [])
+  if (!state.active) return null
+  return (
+    <div className="model-progress" role="status" aria-live="polite">
+      <span style={{ width: `${Math.round(state.progress)}%` }} />
+      <small>Loading bike… {Math.round(state.progress)}%</small>
     </div>
   )
 }
