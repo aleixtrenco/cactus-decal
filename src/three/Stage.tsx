@@ -1,6 +1,6 @@
 import { CameraControls, ContactShadows, Environment, Lightformer } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Suspense, useEffect, useRef } from 'react'
+import { Component, Suspense, useEffect, useRef, type ReactNode } from 'react'
 import type * as THREE from 'three'
 import type { KitConfig } from '../store/config'
 import { useTemplates, type ModelSetup } from '../lib/templates'
@@ -113,6 +113,25 @@ export default function Stage({
 // The real 3D model when this bike has one, otherwise the built-in bike.
 function BikeFor({ cfg }: { cfg: KitConfig }) {
   const t = useTemplates((s) => s.templates[cfg.bikeId])
-  if (t?.model) return <RealBike key={t.model.url} cfg={cfg} template={t as typeof t & { model: ModelSetup }} />
+  if (t?.model)
+    return (
+      <ModelFallback key={t.model.url} fallback={<Bike cfg={cfg} />}>
+        <RealBike cfg={cfg} template={t as typeof t & { model: ModelSetup }} />
+      </ModelFallback>
+    )
   return <Bike cfg={cfg} />
+}
+
+// If a model can't load on this device, show the built-in bike instead.
+class ModelFallback extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  componentDidCatch(e: unknown) {
+    console.error('3D model failed to load', e)
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children
+  }
 }
