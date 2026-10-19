@@ -7,6 +7,7 @@ import Icon from './Icon'
 
 const LINKS = [
   ['Designs', 'designs'],
+  ['Builds', 'builds'],
   ['Pricing', 'pricing'],
   ['How it works', 'how'],
   ['Finishes', 'finishes'],

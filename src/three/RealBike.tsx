@@ -15,7 +15,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
-import { drawPieceLayer, ensureAssets, paintDecalSheet, paintFrontPlate, paintSheet, sheetWidth, WORLD, type Side } from '../lib/graphics'
+import { drawPieceLayer, ensureAssets, paintDecalSheet, paintFrontPlate, paintSheet, pieceVariant, sheetWidth, WORLD, type Side } from '../lib/graphics'
 import { FRONT_WHEEL } from '../lib/shapes'
 import { invert, modelUrl, mul6, onModel, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role, type TemplatePiece } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
@@ -280,13 +280,47 @@ const worldToSheet = (side: Side, w: number) => {
   return invert(side === 'right' ? [k, 0, 0, -k, WORLD.x0, WORLD.y1] : [-k, 0, 0, -k, WORLD.x1, WORLD.y1])
 }
 
-// Pieces designed on their own that sit on the side of the model.
-function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, roles?: Role[]) {
+// The design with a piece's own base colour, cached per paint.
+function variants(cfg: KitConfig, panels: ReturnType<typeof panelSet>, w: number) {
+  const made = new Map<string, HTMLCanvasElement>()
+  return (side: Side, base: string, lettering = false) => {
+    const key = `${side}|${base}|${lettering}`
+    let c = made.get(key)
+    if (!c) {
+      c = Object.assign(document.createElement('canvas'), { width: w, height: w / 2 })
+      paintSheet(c, pieceVariant(cfg, base), side, panels, { lettering })
+      made.set(key, c)
+    }
+    return c
+  }
+}
+
+// Draws `img` (a full sheet) inside one piece, through `base`.
+function fillPiece(c: HTMLCanvasElement, piece: TemplatePiece, base: M6, img: HTMLCanvasElement, imgToC: M6) {
+  const ctx = c.getContext('2d')!
+  ctx.save()
+  ctx.setTransform(...base)
+  ctx.beginPath()
+  piece.outline.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)))
+  ctx.closePath()
+  ctx.clip()
+  ctx.setTransform(...imgToC)
+  ctx.drawImage(img, 0, 0)
+  ctx.restore()
+}
+
+// Pieces designed on their own that sit on the side of the model: their own
+// base colour, then their layers.
+function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: ReturnType<typeof panelSet>, roles?: Role[]) {
+  const variant = variants(cfg, panels, P.sheets.right.width)
   for (const side of ['right', 'left'] as const) {
     const c = P.sheets[side]
     for (const p of t.pieces) {
       if (p.side !== side || !onModel(p, t.pieces) || (roles && !roles.includes(p.role))) continue
-      paintPieceLayers(c, cfg, t, p, mul6(worldToSheet(side, c.width), pieceToWorld(p, t.pieces)))
+      const base = mul6(worldToSheet(side, c.width), pieceToWorld(p, t.pieces))
+      const own = p.role === 'other' ? cfg.partColors?.[`p${p.id}`] : undefined
+      if (own) fillPiece(c, p, base, variant(side, own), [1, 0, 0, 1, 0, 0])
+      paintPieceLayers(c, cfg, t, p, base)
     }
   }
 }
@@ -326,16 +360,12 @@ function paintFender(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: Retu
     return p.side === piece.side && p.role !== 'frontPlate' && p.role !== 'ignore' && cx > x && cx < x + w && cy > y && cy < y + h
   }
   const parts = [piece, ...t.pieces.filter((p) => p !== piece && within(p))]
+  const variant = variants(cfg, panels, P.sheets.art.width)
   for (const p of parts) {
-    ctx.save()
-    ctx.setTransform(...S)
-    ctx.beginPath()
-    p.outline.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)))
-    ctx.closePath()
-    ctx.clip()
-    ctx.setTransform(...mul6(mul6(S, invert(pieceToWorld(p, t.pieces))), [k, 0, 0, -k, WORLD.x0, WORLD.y1]))
-    ctx.drawImage(P.sheets.art, 0, 0)
-    ctx.restore()
+    // The fender centre and other pieces on it can have their own colour.
+    const own = p.role === 'other' ? cfg.partColors?.[`p${p.id}`] : undefined
+    const img = own ? variant('right', own) : P.sheets.art
+    fillPiece(c, p, S, img, mul6(mul6(S, invert(pieceToWorld(p, t.pieces))), [k, 0, 0, -k, WORLD.x0, WORLD.y1]))
     paintPieceLayers(c, cfg, t, p, S)
   }
 }
@@ -414,7 +444,7 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
       const roles = platesOnly(cfg) ? (['sidePlate'] as Role[]) : undefined
       paintDecalSheet(P.sheets.right, cfg, 'right', sideOutlines(template, 'right', roles), panels)
       paintDecalSheet(P.sheets.left, cfg, 'left', sideOutlines(template, 'left', roles), panels)
-      paintSidePieces(P, cfg, template, roles)
+      paintSidePieces(P, cfg, template, panels, roles)
       paintFrontPlate(P.sheets.plate, cfg)
       paintPlatePieces(P, cfg, template)
       paintFender(P, cfg, template, panels)

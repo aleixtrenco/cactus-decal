@@ -2800,3 +2800,111 @@ p {
 .layer-name img {
   flex: none;
 }
+
+/* Models without a print template yet */
+.chip .soon {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.soon-option {
+  opacity: 0.75;
+  border-style: dashed;
+  cursor: default;
+}
+.soon-option .chip {
+  text-decoration: none;
+  flex: none;
+}
+.part-sw {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+}
+
+/* 3D renders in design and pricing cards */
+img.render {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+  transition: transform 0.5s var(--ease-out);
+}
+.design-card:hover img.render {
+  transform: scale(1.04);
+}
+.design-card .thumb:has(img.render) {
+  padding: 0;
+  place-items: stretch;
+  overflow: hidden;
+}
+
+/* Real builds gallery: a swipeable row */
+.builds {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(240px, 1fr);
+  gap: 14px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding: 0 max(16px, calc((100% - 1240px) / 2)) 8px;
+  scrollbar-width: none;
+}
+.builds::-webkit-scrollbar {
+  display: none;
+}
+.build {
+  position: relative;
+  margin: 0;
+  scroll-snap-align: start;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--ink-2);
+  aspect-ratio: 4 / 5.2;
+}
+.build img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.6s var(--ease-out);
+}
+.build:hover img {
+  transform: scale(1.04);
+}
+.build figcaption {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: grid;
+  gap: 2px;
+  padding: 40px 16px 14px;
+  background: linear-gradient(transparent, rgba(11, 12, 9, 0.88));
+}
+.build figcaption b {
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 800;
+  font-size: 24px;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.build figcaption span {
+  color: var(--muted);
+  font-size: 13px;
+}
+@media (max-width: 700px) {
+  .builds {
+    grid-auto-columns: 72%;
+  }
+}
+.ticker-clip {
+  position: relative;
+  z-index: 2;
+  overflow-x: clip;
+}

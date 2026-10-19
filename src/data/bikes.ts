@@ -2,7 +2,7 @@
 // your own templates before launch. `oem` is the stock plastics colour and
 // `frame` the stock frame colour, used by the 3D preview.
 
-export type Make = 'KTM' | 'Husqvarna' | 'GasGas' | 'Yamaha' | 'Honda' | 'Kawasaki' | 'Suzuki'
+export type Make = 'KTM' | 'Husqvarna' | 'GasGas' | 'Yamaha' | 'Honda' | 'Kawasaki' | 'Suzuki' | 'TM' | 'Beta' | 'Sherco'
 
 export interface BikeModel {
   id: string
@@ -12,7 +12,7 @@ export interface BikeModel {
   type: BikeType
 }
 
-// MX = motocross kit, Trail = enduro / trail kit (priced differently).
+// MX = motocross kit, Trail = enduro / trail / adventure kit (priced differently).
 export type BikeType = 'MX' | 'Trail'
 export const typeLabel = (t: BikeType) => (t === 'MX' ? 'Motocross' : 'Trail')
 
@@ -33,11 +33,18 @@ export const MAKES: MakeInfo[] = [
   { make: 'Honda', oem: '#d10a10', frame: '#c4c7cc', shroudLift: 0, tailRise: 0.01 },
   { make: 'Kawasaki', oem: '#5dbb2f', frame: '#2a2c2e', shroudLift: -0.01, tailRise: 0.01 },
   { make: 'Suzuki', oem: '#ffd200', frame: '#b9bdc4', shroudLift: 0, tailRise: 0 },
+  { make: 'TM', oem: '#f4f4f2', frame: '#b9bdc4', shroudLift: 0, tailRise: 0.02 },
+  { make: 'Beta', oem: '#d4001f', frame: '#d4001f', shroudLift: 0, tailRise: 0.01 },
+  { make: 'Sherco', oem: '#1546b8', frame: '#1546b8', shroudLift: 0, tailRise: 0.01 },
 ]
 
 export const BIKES: BikeModel[] = [
   { id: 'ktm-sx-23', make: 'KTM', model: 'SX / SX-F 125–450', years: '2023–2025', type: 'MX' },
+  { id: 'ktm-sx-14', make: 'KTM', model: 'SX / SX-F 450', years: '2014–2016', type: 'MX' },
   { id: 'ktm-exc-24', make: 'KTM', model: 'EXC / EXC-F 150–500', years: '2024–2025', type: 'Trail' },
+  { id: 'ktm-rally-19', make: 'KTM', model: '450 Rally', years: '2019–2024', type: 'Trail' },
+  { id: 'ktm-adv-19', make: 'KTM', model: '790 / 890 Adventure R', years: '2019–2022', type: 'Trail' },
+  { id: 'ktm-990-06', make: 'KTM', model: '990 Adventure', years: '2006–2013', type: 'Trail' },
   { id: 'husq-tcfc-23', make: 'Husqvarna', model: 'TC / FC 125–450', years: '2023–2025', type: 'MX' },
   { id: 'husq-tcfc-16', make: 'Husqvarna', model: 'TC / FC / FS 125–450', years: '2016–2022', type: 'MX' },
   { id: 'husq-tefe-24', make: 'Husqvarna', model: 'TE / FE 150–501', years: '2024–2025', type: 'Trail' },
@@ -53,6 +60,11 @@ export const BIKES: BikeModel[] = [
   { id: 'kx-250-21', make: 'Kawasaki', model: 'KX250', years: '2021–2024', type: 'MX' },
   { id: 'kx-25', make: 'Kawasaki', model: 'KX250 (2025) · KX450 (2024–2025)', years: '2024–2025', type: 'MX' },
   { id: 'rmz-19', make: 'Suzuki', model: 'RM-Z250 / RM-Z450', years: '2019–2025', type: 'MX' },
+  { id: 'tm-mx-24', make: 'TM', model: 'MX 125–450', years: '2024–2025', type: 'MX' },
+  { id: 'tm-en-24', make: 'TM', model: 'EN 125–450', years: '2024–2025', type: 'Trail' },
+  { id: 'beta-rx-24', make: 'Beta', model: 'RX 300 / 450', years: '2024–2025', type: 'MX' },
+  { id: 'beta-rr-24', make: 'Beta', model: 'RR 125–480', years: '2024–2025', type: 'Trail' },
+  { id: 'sherco-se-24', make: 'Sherco', model: 'SE / SEF 125–500', years: '2024–2025', type: 'Trail' },
 ]
 
 export const makeInfo = (make: Make) => MAKES.find((m) => m.make === make)!

@@ -34,10 +34,14 @@ export function piecePanels(t: BikeTemplate | undefined, plates: boolean): { pan
     return cx > b.x && cx < b.x + b.w && cy > b.y && cy < b.y + b.h
   }
   let n = 0
+  const frontPlates = own.filter((p) => p.role === 'frontPlate')
+  const fenders = own.filter(onFender)
+  // Numbered only when a template has more than one (e.g. two plate options).
+  const nth = (list: TemplatePiece[], p: TemplatePiece) => (list.length > 1 ? ` ${list.indexOf(p) + 1}` : '')
   return own.map((p) => ({
     panel: `p${p.id}` as LayerPanel,
     piece: p,
-    label: p.role === 'frontPlate' ? 'Front plate' : onFender(p) ? 'Fender centre' : `Trim ${++n} · ${SIDE[p.side]}`,
+    label: p.role === 'frontPlate' ? `Front plate${nth(frontPlates, p)}` : onFender(p) ? `Fender centre${nth(fenders, p)}` : `Trim ${++n} · ${SIDE[p.side]}`,
   }))
 }
 

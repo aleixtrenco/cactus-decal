@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import { drawPieceLayer, ensureAssets, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFrame, sheetWidth, WORLD, type Side } from '../lib/graphics'
+import { drawPieceLayer, ensureAssets, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFrame, pieceVariant, sheetWidth, WORLD, type Side } from '../lib/graphics'
 import { apply, builtInTemplate, invert, mul6, panelsFor, pieceToWorld, useTemplates, type M6, type Role, type TemplatePiece } from '../lib/templates'
 import { firstColor, paintCss } from '../lib/paint'
 import { pieceIdOf, platesOnly, useConfig, type Layer, type LayerPanel } from '../store/config'
@@ -19,6 +19,7 @@ type View = 'both' | 'right' | 'left'
 const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
 const PLATES: Role[] = ['frontPlate', 'sidePlate']
 const MAIN: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
+const COLOURS_STEP = 2
 const GRAPHICS_STEP = 3
 
 // The panel a template piece belongs to: a main panel, or the piece itself.
@@ -169,6 +170,18 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
         lettering: false,
       })
       paintFrontPlate(sheets.plate, config)
+      const variants = new Map<string, Record<Side, HTMLCanvasElement>>()
+      const variantFor = (base: string) => {
+        let v = variants.get(base)
+        if (!v) {
+          v = { right: canvasOf(SW, SW / 2), left: canvasOf(SW, SW / 2) }
+          const vc = pieceVariant(config, base)
+          paintSheet(v.right, vc, 'right', panels, { lettering: false })
+          paintSheet(v.left, vc, 'left', panels, { lettering: false })
+          variants.set(base, v)
+        }
+        return v
+      }
 
       const ctx = canvas.getContext('2d')!
       ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -201,7 +214,9 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
         } else {
           const side: Side = p.side === 'left' ? 'left' : 'right'
           const lettered = LETTERED.includes(host.role)
-          const sheet = side === 'right' ? (lettered ? sheets.right : sheets.rightPlain) : lettered ? sheets.left : sheets.leftPlain
+          // A single piece with its own base colour gets its own version.
+          const own = lettered ? undefined : config.partColors?.[`p${host.id}`]
+          const sheet = own ? variantFor(own)[side] : side === 'right' ? (lettered ? sheets.right : sheets.rightPlain) : lettered ? sheets.left : sheets.leftPlain
           setM(mul6(mul6(V, invert(toWorld)), sheetToWorld(side, SW)))
           ctx.drawImage(sheet, 0, 0)
         }
@@ -292,7 +307,8 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     const hitPiece = pieceAt(t)
     if (!hitPiece) return select(null)
     const l = layerAt(t, hitPiece)
-    if (step !== GRAPHICS_STEP) setStep(GRAPHICS_STEP)
+    // Picking a part while colouring stays on the Colours step.
+    if (step !== GRAPHICS_STEP && (l || step !== COLOURS_STEP)) setStep(GRAPHICS_STEP)
     if (!l) {
       // Tapping a piece picks its panel for designing.
       const p = panelOf(hitPiece.host)

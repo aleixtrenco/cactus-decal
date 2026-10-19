@@ -3,9 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import AppLink from '../components/AppLink'
 import { CactusSpines, Contours, Footer, Header } from '../components/Chrome'
 import Icon, { type IconName } from '../components/Icon'
-import { designPreview, LazyStage, ProofCanvas, Reveal } from '../components/bits'
+import { designPreview, LazyStage, Reveal } from '../components/bits'
 import { MAKES } from '../data/bikes'
-import { useAvailableBikes } from '../lib/templates'
 import { DESIGNS, PRESETS } from '../data/designs'
 import { FINISHES, formatAED, KIT_PARTS, KIT_PRICES, PLATES_KIT, PLATES_PARTS, type FinishId } from '../data/pricing'
 import { FAQ } from '../data/site'
@@ -14,7 +13,6 @@ const HERO_BIKE = 'husq-tcfc-16'
 const HERO_ROTATION = ['shamal', 'saguaro', 'falcon', 'dune', 'hex'] as const
 
 function Hero() {
-  const available = useAvailableBikes()
   const [i, setI] = useState(0)
   const reduce = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const finePointer = typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches
@@ -78,7 +76,7 @@ function Hero() {
               </a>
             </div>
             <p className="fits">
-              Fits <strong>{MAKES.filter((m) => available.some((b) => b.make === m.make)).map((m) => m.make).join(' · ')}</strong>
+              Fits <strong>{MAKES.map((m) => m.make).join(' · ')}</strong>
             </p>
           </motion.div>
         </div>
@@ -111,18 +109,21 @@ function Ticker() {
   const words = ['Design it', 'Print it', 'Send it', 'Made in Dubai']
   const run = [...words, ...words, ...words]
   return (
-    <div className="ticker" aria-hidden="true">
-      <div className="ticker-track">
-        {[0, 1].map((k) => (
-          <span key={k}>
-            {run.map((w, i) => (
-              <span key={i} style={{ padding: 0, gap: 28 }}>
-                {w}
-                <CactusSpines className="tick-ico" />
-              </span>
-            ))}
-          </span>
-        ))}
+    // The tilted band is wider than the screen: clip it sideways only.
+    <div className="ticker-clip">
+      <div className="ticker" aria-hidden="true">
+        <div className="ticker-track">
+          {[0, 1].map((k) => (
+            <span key={k}>
+              {run.map((w, i) => (
+                <span key={i} style={{ padding: 0, gap: 28 }}>
+                  {w}
+                  <CactusSpines className="tick-ico" />
+                </span>
+              ))}
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -144,10 +145,22 @@ const FEATURES: [IconName, string, string][] = [
   ['tag', 'Instant AED pricing', 'The price updates with every option. No surprises.'],
 ]
 
+// Site-relative files also work when the site is served from a sub-folder.
+const asset = (path: string) => import.meta.env.BASE_URL + path
+
+// Customer bikes wearing Cactus Decal Lab kits.
+const BUILDS = [
+  { src: 'gallery/build-1.webp', bike: 'KTM SX-F', style: 'Purple race kit · #7', alt: 'KTM SX-F with a black, white, purple and orange race kit and number 7' },
+  { src: 'gallery/build-2.webp', bike: 'KTM SX-F', style: 'Waffle cone custom · #21', alt: 'KTM SX-F with a white, pink and waffle-cone custom kit and number 21' },
+  { src: 'gallery/build-3.webp', bike: 'KTM 125 SX', style: 'Retro black and orange', alt: 'Classic KTM 125 SX with a black and orange retro sponsor kit' },
+  { src: 'gallery/build-4.webp', bike: 'Yamaha WR', style: 'South African colours · #27', alt: 'Yamaha WR in blue with red stripes and a South African flag design, number 27' },
+  { src: 'gallery/build-5.webp', bike: 'KTM SX', style: 'Chrome fade · #818', alt: 'KTM SX with an orange, pink and purple chrome fade kit and number 818' },
+]
+
 const PLANS = [
-  { title: 'Motocross kit', body: KIT_PARTS, price: KIT_PRICES.MX.price, to: '/configurator?kit=full', cta: 'Design a kit', cfg: designPreview('dune'), featured: true },
-  { title: 'Trail bike kit', body: KIT_PARTS, price: KIT_PRICES.Trail.price, to: '/configurator?kit=full', cta: 'Design a kit', cfg: designPreview('shamal') },
-  { title: 'Number plates only', body: `${PLATES_PARTS}.`, price: PLATES_KIT.price, to: '/configurator?kit=plates', cta: 'Design plates', cfg: { ...designPreview('saguaro'), kit: 'plates' as const } },
+  { title: 'Motocross kit', body: KIT_PARTS, price: KIT_PRICES.MX.price, to: '/configurator?kit=full', cta: 'Design a kit', render: 'dune', featured: true },
+  { title: 'Trail bike kit', body: KIT_PARTS, price: KIT_PRICES.Trail.price, to: '/configurator?kit=full', cta: 'Design a kit', render: 'shamal' },
+  { title: 'Number plates only', body: `${PLATES_PARTS}.`, price: PLATES_KIT.price, to: '/configurator?kit=plates', cta: 'Design plates', render: 'saguaro-plates' },
 ]
 
 export default function Home() {
@@ -234,7 +247,7 @@ export default function Home() {
                 <Reveal key={d.id} delay={((i + 1) % 4) * 0.06}>
                   <AppLink to={`/configurator?design=${d.id}`} className="design-card">
                     <div className="thumb">
-                      <ProofCanvas cfg={designPreview(d.id)} width={560} label={`${d.name} design preview`} />
+                      <img className="render" src={asset(`renders/${d.id}.webp`)} alt={`${d.name} design on a Husqvarna, rendered in 3D`} loading="lazy" width={960} height={600} />
                     </div>
                     <div className="meta">
                       <div>
@@ -249,6 +262,37 @@ export default function Home() {
                 </Reveal>
               ))}
             </div>
+          </div>
+        </section>
+
+        <section id="builds" className="section" style={{ paddingTop: 0 }}>
+          <div className="container">
+            <div className="section-head">
+              <Reveal>
+                <span className="eyebrow">Fresh from the workshop</span>
+                <h2 className="display">
+                  Real bikes.
+                  <br />
+                  Real kits.
+                </h2>
+              </Reveal>
+              <Reveal delay={0.1}>
+                <p>Every kit is printed, laminated and cut in Dubai. A few recent builds from riders across the UAE.</p>
+              </Reveal>
+            </div>
+          </div>
+          <div className="builds" role="list">
+            {BUILDS.map((b, i) => (
+              <Reveal key={b.src} delay={(i % 5) * 0.06}>
+                <figure className="build" role="listitem">
+                  <img src={asset(b.src)} alt={b.alt} loading="lazy" width={800} height={1050} />
+                  <figcaption>
+                    <b>{b.bike}</b>
+                    <span>{b.style}</span>
+                  </figcaption>
+                </figure>
+              </Reveal>
+            ))}
           </div>
         </section>
 
@@ -272,7 +316,7 @@ export default function Home() {
                 <Reveal key={plan.title} delay={i * 0.07}>
                   <div className={`plan${plan.featured ? ' featured' : ''}`}>
                     <div className="plan-thumb">
-                      <ProofCanvas cfg={plan.cfg} width={560} label={`${plan.title} preview`} />
+                      <img className="render" src={asset(`renders/${plan.render}.webp`)} alt={`${plan.title}, rendered in 3D`} loading="lazy" width={960} height={600} />
                     </div>
                     <h3>{plan.title}</h3>
                     <p>{plan.body}</p>

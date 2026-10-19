@@ -15,7 +15,7 @@ import { bikeById, typeLabel } from '../data/bikes'
 import { designById } from '../data/designs'
 import { FINISHES, MATERIALS } from '../data/pricing'
 import { platesOnly, type KitConfig } from '../store/config'
-import { drawPieceLayer, paintFrontPlate, paintSheet, WORLD, type Side } from './graphics'
+import { drawPieceLayer, paintFrontPlate, paintSheet, pieceVariant, WORLD, type Side } from './graphics'
 import { builtInTemplate, invert, mount, pieceElements, pieceToWorld, panelsFor, toRoot, type BikeTemplate, type M6, type Role, type TemplatePiece } from './templates'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -71,6 +71,8 @@ interface State {
   textBaseline: CanvasTextBaseline
   lineJoin: CanvasLineJoin
   lineCap: CanvasLineCap
+  // Clip groups opened since the matching save().
+  clips: number
 }
 
 // A linear gradient as the painters create it (in their own coordinates).
@@ -97,8 +99,9 @@ let gradientIds = 0
 class SvgRecorder {
   defs: string[] = []
   out: string[] = []
-  private s: State = { m: [1, 0, 0, 1, 0, 0], fillStyle: '#000', strokeStyle: '#000', lineWidth: 1, globalAlpha: 1, font: '10px sans-serif', textAlign: 'start', textBaseline: 'alphabetic', lineJoin: 'miter', lineCap: 'butt' }
+  private s: State = { m: [1, 0, 0, 1, 0, 0], fillStyle: '#000', strokeStyle: '#000', lineWidth: 1, globalAlpha: 1, font: '10px sans-serif', textAlign: 'start', textBaseline: 'alphabetic', lineJoin: 'miter', lineCap: 'butt', clips: 0 }
   private stack: State[] = []
+  get depth() { return this.stack.length }
   private d = ''
   private circle: { cx: number; cy: number; r: number } | null = null
   private measurer = document.createElement('canvas').getContext('2d')!
@@ -142,8 +145,23 @@ class SvgRecorder {
   get lineCap() { return this.s.lineCap }
   set lineCap(v: CanvasLineCap) { this.s.lineCap = v }
 
-  save() { this.stack.push({ ...this.s, m: [...this.s.m] as M6 }) }
-  restore() { if (this.stack.length) this.s = this.stack.pop()! }
+  save() { this.stack.push({ ...this.s, m: [...this.s.m] as M6 }); this.s.clips = 0 }
+  restore() {
+    this.close()
+    if (this.stack.length) this.s = this.stack.pop()!
+  }
+  // Ends the clip groups opened at this save level.
+  close() {
+    for (; this.s.clips > 0; this.s.clips--) this.out.push('</g>')
+  }
+  // Clips what follows to the current path (an SVG clipPath group).
+  clip() {
+    if (!this.d) return
+    const id = `cdlc${++gradientIds}`
+    this.defs.push(`<clipPath id="${id}" clipPathUnits="userSpaceOnUse"><path d="${this.d}"/></clipPath>`)
+    this.out.push(`<g clip-path="url(#${id})">`)
+    this.s.clips++
+  }
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number) { this.s.m = [a, b, c, d, e, f] }
 
   private tp(x: number, y: number) {
@@ -234,6 +252,8 @@ function record(f: Fonts, width: number, height: number, paint: (c: HTMLCanvasEl
   const rec = new SvgRecorder(f)
   const fake = { width, height, getContext: () => rec }
   paint(fake as unknown as HTMLCanvasElement)
+  while (rec.depth) rec.restore()
+  rec.close()
   return (rec.defs.length ? `<defs>${rec.defs.join('')}</defs>\n` : '') + rec.out.join('\n')
 }
 
@@ -301,6 +321,18 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
     `<g id="art-right-plain">${art('right', false)}</g>`,
     `<g id="art-left-plain">${art('left', false)}</g>`,
   ]
+  // Single pieces with their own base colour: a version of the design each.
+  const variants = new Map<string, number>()
+  const variant = (base: string) => {
+    let i = variants.get(base)
+    if (i === undefined) {
+      i = variants.size
+      variants.set(base, i)
+      const vc = pieceVariant(cfg, base)
+      for (const side of ['right', 'left'] as const) defs.push(`<g id="art-${side}-v${i}">${record(f, SHEET_W, SHEET_W / 2, (c) => paintSheet(c, vc, side, panels, { lettering: false }))}</g>`)
+    }
+    return i
+  }
   const printed: string[] = []
   // Anything the customer designed on a piece itself, in template units.
   const own = (p: TemplatePiece) => {
@@ -322,7 +354,9 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
     const side: Side = p.side === 'left' ? 'left' : 'right'
     const m = mul(invert(pieceToWorld(p, t.pieces)), sheetToWorld(side))
     const host = p.parent !== undefined ? (t.pieces.find((q) => q.id === p.parent) ?? p) : p
-    const ref = `#art-${side}${LETTERED.includes(host.role) ? '' : '-plain'}`
+    const lettered = LETTERED.includes(host.role)
+    const base = lettered ? undefined : cfg.partColors?.[`p${host.id}`]
+    const ref = base ? `#art-${side}-v${variant(base)}` : `#art-${side}${lettered ? '' : '-plain'}`
     printed.push(`<g id="piece-${p.id}-${p.role}" mask="url(#m${p.id})"><use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/>${own(p)}</g>`)
   }
   const cut = pieces.map((p) => paint(shapeOf(p), `fill="none" stroke="#ec008c" stroke-width="${n(vw * 0.0004)}"`)).join('\n')

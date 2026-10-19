@@ -10,7 +10,8 @@ import TemplateDesigner from '../components/TemplateDesigner'
 import Icon from '../components/Icon'
 import { paintCss } from '../lib/paint'
 import { AnimatedNumber, LazyStage, ProofCanvas } from '../components/bits'
-import { MAKES, bikeById, typeLabel, type Make } from '../data/bikes'
+import { BIKES, MAKES, bikeById, typeLabel, type Make } from '../data/bikes'
+import { CONTACT } from '../data/site'
 import { DESIGNS, PRESETS, designById, swatchName, type Palette } from '../data/designs'
 import { FONTS as NUMBER_FONTS, type FontId as NumberFont } from '../data/fonts'
 import {
@@ -34,7 +35,8 @@ import {
 import { decodeConfig, encodeConfig } from '../lib/share'
 import { drawProof } from '../lib/proof'
 import { ensureAssets, loadImage } from '../lib/graphics'
-import { STEPS, platesOnly, priceInput, useConfig, type KitConfig, type LayerPanel, type PlasticsId } from '../store/config'
+import { STEPS, pieceIdOf, platesOnly, priceInput, useConfig, type KitConfig, type LayerPanel, type PlasticsId } from '../store/config'
+import type { Paint } from '../lib/paint'
 import type { StageApi, View } from '../three/Stage'
 
 const STEP_VIEW: View[] = ['three-quarter', 'right', 'three-quarter', 'right', 'plate', 'right', 'three-quarter', 'three-quarter']
@@ -265,8 +267,12 @@ function BikeStep() {
   const current = bikeById(config.bikeId)
   const [make, setMake] = useState<Make>(current.make)
   const available = useAvailableBikes()
-  const makes = MAKES.filter((m) => available.some((b) => b.make === m.make))
-  const models = available.filter((b) => b.make === make)
+  // Every brand is listed; only models with a print template can be designed.
+  const makes = MAKES
+  const ready = (id: string) => available.some((b) => b.id === id)
+  const models = BIKES.filter((b) => b.make === make).sort((a, b) => Number(ready(b.id)) - Number(ready(a.id)))
+  const request = (b: { make: string; model: string; years: string }) =>
+    `https://wa.me/${CONTACT.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi Cactus Decal Lab, I'd like a custom kit for my ${b.make} ${b.model} (${b.years}).`)}`
   return (
     <>
       <StepHead title="Your bike" lead="Choose what you're designing, then your make and model so every piece is cut to fit." />
@@ -299,11 +305,12 @@ function BikeStep() {
               aria-pressed={make === m.make}
               onClick={() => {
                 setMake(m.make)
-                const first = available.find((b) => b.make === m.make)!
-                set({ bikeId: first.id })
+                const first = available.find((b) => b.make === m.make)
+                if (first) set({ bikeId: first.id })
               }}
             >
               {m.make}
+              {!available.some((b) => b.make === m.make) && <small className="soon"> soon</small>}
             </button>
           ))}
         </div>
@@ -311,17 +318,31 @@ function BikeStep() {
       <div className="group">
         <div className="group-label">Model & year</div>
         <div className="options">
-          {models.map((b) => (
-            <button key={b.id} className="option" aria-pressed={config.bikeId === b.id} onClick={() => set({ bikeId: b.id })}>
-              <span>
-                <b>{b.model}</b>
-                <small>
-                  {b.years} · {typeLabel(b.type)} · {formatAED(kitPrice(config.kit, b.type).price)}
-                </small>
-              </span>
-              {config.bikeId === b.id && <Icon name="check" />}
-            </button>
-          ))}
+          {models.map((b) =>
+            ready(b.id) ? (
+              <button key={b.id} className="option" aria-pressed={config.bikeId === b.id} onClick={() => set({ bikeId: b.id })}>
+                <span>
+                  <b>{b.model}</b>
+                  <small>
+                    {b.years} · {typeLabel(b.type)} · {formatAED(kitPrice(config.kit, b.type).price)}
+                  </small>
+                </span>
+                {config.bikeId === b.id && <Icon name="check" />}
+              </button>
+            ) : (
+              <div key={b.id} className="option soon-option">
+                <span>
+                  <b>{b.model}</b>
+                  <small>
+                    {b.years} · Template coming soon
+                  </small>
+                </span>
+                <a className="chip chip-sm" href={request(b)} target="_blank" rel="noreferrer">
+                  Request
+                </a>
+              </div>
+            ),
+          )}
         </div>
       </div>
       <div className="group">
@@ -386,50 +407,121 @@ function DesignStep() {
 }
 
 function ColourStep() {
-  const { config, setColor, chooseDesign } = useConfig()
-  const [open, setOpen] = useState<keyof Palette | null>('primary')
+  const { config, set, setColor, setRider, setPanel } = useConfig()
+  const chosen = useConfig((s) => s.panel)
+  const template = useTemplates((s) => s.templates[config.bikeId])
+  const plates = platesOnly(config)
+  const pieces = piecePanels(template, plates)
+  const parts: [LayerPanel, string][] = [...panelsAllowed(plates).filter(([p]) => p !== 'kit'), ...pieces.map((x): [LayerPanel, string] => [x.panel, x.label])]
+  const part = parts.some(([p]) => p === chosen) ? chosen : parts[0][0]
+  // The side and front plates share the number-plate background colour.
+  const plateOf = (p: LayerPanel) => p === 'sidePlate' || pieces.find((x) => x.panel === p)?.piece.role === 'frontPlate'
+  const colourOf = (p: LayerPanel) => (plateOf(p) ? config.rider.plateColor : (config.partColors[p] ?? config.colors.base))
+  const value = colourOf(part)
+  const custom = !plateOf(part) && !!config.partColors[part]
+  const setPart = (c: Paint) => (plateOf(part) ? setRider({ plateColor: c }) : set({ partColors: { ...config.partColors, [part]: c } }))
+  const everywhere = () => set({ colors: { ...config.colors, base: value }, partColors: {} })
+  const backToKit = () => {
+    const next = { ...config.partColors }
+    delete next[part]
+    set({ partColors: next })
+  }
+  const name = parts.find(([p]) => p === part)?.[1] ?? 'Part'
+  const [open, setOpen] = useState<keyof Palette | null>(null)
+  const [allPieces, setAllPieces] = useState(false)
   const zones: [keyof Palette, string, string][] = [
-    ['base', 'Base', 'The background colour across the kit'],
     ['primary', 'Primary', 'The main shapes of the design'],
     ['secondary', 'Secondary', 'Supporting shapes and blocks'],
     ['accent', 'Accent', 'Pinstripes, details and lettering'],
   ]
   return (
     <>
-      <StepHead title="Colours" lead="Tap a zone, then pick a colour, type any hex code or make a gradient. The bike updates instantly." />
+      <StepHead title="Colours" lead="Every part can have its own base colour. Pick a part (or tap it on the template), then any colour, hex code or gradient." />
       <div className="group">
-        {zones.map(([key, label, help]) => (
-          <div className="zone" key={key}>
-            <button className="zone-head" aria-expanded={open === key} onClick={() => setOpen(open === key ? null : key)}>
-              <span className="sw" style={{ background: paintCss(config.colors[key]) }} aria-hidden="true" />
-              <span>
-                <b>{label}</b>
-                <small>
-                  {swatchName(config.colors[key])} · {help}
-                </small>
-              </span>
-              <Icon name="chevron" />
-            </button>
-            <AnimatePresence initial={false}>
-              {open === key && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.25 }}
-                  style={{ overflow: 'hidden' }}
-                >
-                  <div className="swatches">
-                    <ColorField value={config.colors[key]} onChange={(p) => setColor(key, p)} label={`${label} colour`} />
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+        <div className="group-label">1 · Choose a part</div>
+        <div className="panel-picks" role="group" aria-label="Part">
+          {parts
+            .filter(([p]) => pieceIdOf(p) === null)
+            .map(([p, l]) => (
+              <button key={p} className="panel-pick" aria-pressed={part === p} onClick={() => setPanel(p)}>
+                <b>
+                  <i className="part-sw" style={{ background: paintCss(colourOf(p)) }} aria-hidden="true" /> {l}
+                </b>
+                <small>{plateOf(p) ? 'Number plates' : config.partColors[p] ? swatchName(colourOf(p)) : 'Kit colour'}</small>
+              </button>
+            ))}
+        </div>
+        {pieces.length > 0 && (
+          <div className="chips" role="group" aria-label="Other pieces" style={{ marginTop: 10 }}>
+            {(allPieces ? pieces : pieces.slice(0, 8).concat(pieces.filter((x, i) => i >= 8 && x.panel === part))).map((x) => (
+              <button key={x.panel} className="chip chip-sm grad-end" aria-pressed={part === x.panel} onClick={() => setPanel(x.panel)}>
+                <i style={{ background: paintCss(colourOf(x.panel)) }} /> {x.label}
+              </button>
+            ))}
+            {pieces.length > 8 && (
+              <button className="chip chip-sm" onClick={() => setAllPieces(!allPieces)} aria-expanded={allPieces}>
+                {allPieces ? 'Show fewer' : `Show all ${pieces.length}`}
+              </button>
+            )}
           </div>
-        ))}
+        )}
       </div>
+      <div className="group">
+        <div className="group-label">
+          2 · Base colour of the {name.toLowerCase()} <span>{plateOf(part) ? 'Front and side plates' : custom ? swatchName(value) : 'Same as the kit'}</span>
+        </div>
+        <ColorField value={value} onChange={setPart} label={`${name} colour`} />
+        <div className="chips" style={{ marginTop: 12 }}>
+          {!plateOf(part) && (
+            <button className="chip chip-sm" onClick={everywhere}>
+              Use on every part
+            </button>
+          )}
+          {custom && (
+            <button className="chip chip-sm" onClick={backToKit}>
+              Back to the kit colour
+            </button>
+          )}
+        </div>
+      </div>
+      {config.designId !== 'blank' && (
+        <div className="group">
+          <div className="group-label">
+            Design colours <span>Stripes and details of {designById(config.designId).name}</span>
+          </div>
+          {zones.map(([key, label, help]) => (
+            <div className="zone" key={key}>
+              <button className="zone-head" aria-expanded={open === key} onClick={() => setOpen(open === key ? null : key)}>
+                <span className="sw" style={{ background: paintCss(config.colors[key]) }} aria-hidden="true" />
+                <span>
+                  <b>{label}</b>
+                  <small>
+                    {swatchName(config.colors[key])} · {help}
+                  </small>
+                </span>
+                <Icon name="chevron" />
+              </button>
+              <AnimatePresence initial={false}>
+                {open === key && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25 }}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    <div className="swatches">
+                      <ColorField value={config.colors[key]} onChange={(p) => setColor(key, p)} label={`${label} colour`} />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          ))}
+        </div>
+      )}
       <p className="note">Colours with a ring are neon inks (+ {formatAED(NEON_SURCHARGE)} once per kit). Screens vary, so we print to standard colour references.</p>
-      <button className="btn btn-ghost btn-sm" style={{ marginTop: 16 }} onClick={() => chooseDesign(config.designId)}>
+      <button className="btn btn-ghost btn-sm" style={{ marginTop: 16 }} onClick={() => set({ colors: { ...designById(config.designId).palette }, partColors: {} })}>
         <Icon name="rotate" size={16} /> Reset to design colours
       </button>
     </>

@@ -14,7 +14,7 @@ export function decodeConfig(s: string): KitConfig | null {
     const json = decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/'))))
     const parsed = JSON.parse(json)
     const base = defaultConfig()
-    return { ...base, ...parsed, colors: { ...base.colors, ...parsed.colors }, rider: { ...base.rider, ...parsed.rider }, logos: [], layers: Array.isArray(parsed.layers) ? parsed.layers : [] }
+    return { ...base, ...parsed, colors: { ...base.colors, ...parsed.colors }, rider: { ...base.rider, ...parsed.rider }, logos: [], layers: Array.isArray(parsed.layers) ? parsed.layers : [], partColors: parsed.partColors ?? {} }
   } catch {
     return null
   }

@@ -55,6 +55,9 @@ export interface KitConfig {
   makeLettering: boolean
   logos: Logo[]
   layers: Layer[]
+  // Base colour per part (main panels or single pieces "p<id>"); the side
+  // and front plates use rider.plateColor, the whole kit colors.base.
+  partColors: Partial<Record<LayerPanel, Paint>>
   kit: KitId
   finish: FinishId
   material: MaterialId
@@ -74,6 +77,7 @@ export const defaultConfig = (): KitConfig => {
     makeLettering: true,
     logos: [],
     layers: [],
+    partColors: {},
     kit: 'full',
     finish: 'gloss',
     material: 'standard',
@@ -86,7 +90,7 @@ export const plasticsHex = (c: KitConfig) =>
   c.plastics === 'white' ? '#f4f4f2' : c.plastics === 'black' ? '#141414' : makeInfo(bikeById(c.bikeId).make).oem
 
 export const usesNeon = (c: KitConfig) =>
-  [...Object.values(c.colors), c.rider.numberColor, c.rider.plateColor, c.rider.nameColor, ...c.layers.map((l) => l.fill)].flatMap(paintColors).some((h) => NEON_HEXES.has(h))
+  [...Object.values(c.colors), ...Object.values(c.partColors ?? {}), c.rider.numberColor, c.rider.plateColor, c.rider.nameColor, ...c.layers.map((l) => l.fill)].flatMap(paintColors).some((h) => NEON_HEXES.has(h))
 
 export const priceInput = (c: KitConfig): PriceInput => ({
   kit: c.kit,
@@ -163,6 +167,7 @@ export const useConfig = create<Store>((set) => ({
             makeLettering: false,
             logos: [],
             layers: [],
+            partColors: {},
             rider: { ...c.rider, name: '', number: '', plateColor: d.palette.base, numberColor: '#101010', nameColor: '#101010' },
           },
         }
@@ -174,6 +179,7 @@ export const useConfig = create<Store>((set) => ({
           ...c,
           designId: id,
           colors: { ...d.palette },
+          partColors: {},
           makeLettering: fromBlank ? true : c.makeLettering,
           rider: fromBlank ? { ...c.rider, name: c.rider.name || base.name, number: c.rider.number || base.number, plateColor: base.plateColor, nameColor: base.nameColor } : c.rider,
         },

@@ -365,6 +365,10 @@ function place(p: Placement, panels: PanelSet) {
 }
 
 // `lettering: false` paints the pattern only (for trim pieces in print files).
+// A single piece with its own base colour uses `pieceVariant`.
+// The design with another base colour, for one piece (pattern only).
+export const pieceVariant = (cfg: KitConfig, base: string): KitConfig => ({ ...cfg, colors: { ...cfg.colors, base }, partColors: {} })
+
 export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side, panels: PanelSet = panelsFor(cfg), { lettering = true } = {}) {
   const W = canvas.width
   const H = canvas.height
@@ -377,6 +381,20 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
   const c = cfg.colors
   const fills = { base: paintStyle(ctx, c.base, sheetBox), primary: paintStyle(ctx, c.primary, sheetBox), secondary: paintStyle(ctx, c.secondary, sheetBox), accent: paintStyle(ctx, c.accent, sheetBox) }
   PATTERNS[cfg.designId](ctx, fills)
+  // Main panels with their own base colour: the design again, inside them.
+  for (const role of ['shroud', 'rearFender', 'frontFender'] as const) {
+    const base = cfg.partColors?.[role]
+    if (!base) continue
+    ctx.save()
+    ctx.beginPath()
+    for (const seg of panels[role]) {
+      tracePath(ctx, seg)
+      ctx.closePath()
+    }
+    ctx.clip()
+    PATTERNS[cfg.designId](ctx, { ...fills, base: paintStyle(ctx, base, sheetBox) })
+    ctx.restore()
+  }
   // Customer photos used as the whole background go straight over the pattern.
   for (const l of cfg.layers) if (l.kind === 'image' && l.cover) drawCover(ctx, l, W, H)
   worldTransform(ctx, side, W, H)

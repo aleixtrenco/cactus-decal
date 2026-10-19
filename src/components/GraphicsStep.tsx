@@ -34,6 +34,7 @@ export default function GraphicsStep() {
   const chosen = useConfig((s) => s.panel)
   const setPanel = useConfig((s) => s.setPanel)
   const [picking, setPicking] = useState(false)
+  const [allPieces, setAllPieces] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const file = useRef<HTMLInputElement>(null)
   const logoFile = useRef<HTMLInputElement>(null)
@@ -115,12 +116,17 @@ export default function GraphicsStep() {
               Other pieces <span>Front plate, fork guards, fender centre and trim</span>
             </div>
             <div className="chips" role="group" aria-label="Other pieces">
-              {pieceChoices.map((x) => (
+              {(allPieces ? pieceChoices : pieceChoices.slice(0, 8).concat(pieceChoices.filter((x, i) => i >= 8 && x.panel === panel))).map((x) => (
                 <button key={x.panel} className="chip chip-sm" aria-pressed={panel === x.panel} onClick={() => setPanel(x.panel)}>
                   {x.label}
                   {config.layers.some((l) => l.panel === x.panel) ? ' •' : ''}
                 </button>
               ))}
+              {pieceChoices.length > 8 && (
+                <button className="chip chip-sm" onClick={() => setAllPieces(!allPieces)} aria-expanded={allPieces}>
+                  {allPieces ? 'Show fewer' : `Show all ${pieceChoices.length}`}
+                </button>
+              )}
             </div>
           </>
         )}
