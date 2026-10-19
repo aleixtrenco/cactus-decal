@@ -64,7 +64,9 @@ export interface ModelSetup {
 }
 
 // Site-relative model paths (bundled models) also work from a sub-folder.
-export const modelUrl = (u: string) => (u.startsWith('/') && !u.startsWith('//') ? import.meta.env.BASE_URL + u.slice(1) : u)
+// (The sandboxed preview can't serve .glb files, so its copies end in .txt.)
+export const modelUrl = (u: string) =>
+  u.startsWith('/') && !u.startsWith('//') ? import.meta.env.BASE_URL + u.slice(1) + (import.meta.env.VITE_HASH_ROUTER && u.endsWith('.glb') ? '.txt' : '') : u
 
 export const defaultModelSetup = (url: string): ModelSetup => ({ url, yaw: 0, scale: 1, dx: 0, dy: 0, plate: { y: 1.02, w: 0.3, h: 0.27 } })
 
