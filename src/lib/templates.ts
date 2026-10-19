@@ -522,6 +522,9 @@ export interface PanelSet {
   sidePlate: Seg[][]
   rearFender: Seg[][]
   frontFender: Seg[][]
+  // The left side plate when it is cut differently (e.g. in two around the
+  // airbox), placed over the right one.
+  sidePlateLeft?: Seg[][]
 }
 
 // The outlines used on the bike: the template's real pieces (placed on the
@@ -529,10 +532,10 @@ export interface PanelSet {
 export function panelSet(t: BikeTemplate | undefined, lift: number, rise: number): PanelSet {
   const def: PanelSet = { shroud: [shroud(lift)], sidePlate: [sidePlate(rise)], rearFender: [rearFender(rise)], frontFender: [frontFender()] }
   if (!t) return def
-  const pick = (role: Role) => {
+  const pick = (role: Role, side?: 'left') => {
     const sided = t.pieces.filter((p) => p.role === role && p.parent === undefined && p.side !== 'center')
     // Both sides are mirror images; use one side so panels aren't doubled.
-    const one = sided.some((p) => p.side === 'right') ? sided.filter((p) => p.side === 'right') : sided
+    const one = side ? sided.filter((p) => p.side === side) : sided.some((p) => p.side === 'right') ? sided.filter((p) => p.side === 'right') : sided
     return one.map((p) => {
       const m = pieceToWorld(p, t.pieces)
       return p.outline.map((pt, i) => {
@@ -547,6 +550,7 @@ export function panelSet(t: BikeTemplate | undefined, lift: number, rise: number
     sidePlate: or(pick('sidePlate'), def.sidePlate),
     rearFender: or(pick('rearFender'), def.rearFender),
     frontFender: or(pick('frontFender'), def.frontFender),
+    sidePlateLeft: pick('sidePlate', 'left'),
   }
 }
 

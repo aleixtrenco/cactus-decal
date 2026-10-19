@@ -294,8 +294,8 @@ export default function GraphicsStep() {
               <div className="sliders" style={{ marginTop: 12 }}>
                 {(
                   [
-                    ['Left / right', 'x', -0.2, 1.2, 0.01],
-                    ['Up / down', 'y', -0.2, 1.2, 0.01],
+                    ['Left / right', 'x', 0, 1, 0.01],
+                    ['Up / down', 'y', 0, 1, 0.01],
                     ['Size', 'size', 0.03, 1.5, 0.01],
                     ['Rotation', 'rotation', -180, 180, 1],
                   ] as const

@@ -153,13 +153,11 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     let alive = true
     let frame = 0
     const SW = Math.min(sheetWidth(), 1536)
+    // Per side: the design, the lettering, and the layers of each main panel,
+    // drawn separately so each piece only shows its own panel's layers.
     const sheets = {
-      right: canvasOf(SW, SW / 2),
-      left: canvasOf(SW, SW / 2),
-      rightPlain: canvasOf(SW, SW / 2),
-      leftPlain: canvasOf(SW, SW / 2),
-      rightOver: canvasOf(SW, SW / 2),
-      leftOver: canvasOf(SW, SW / 2),
+      plain: { right: canvasOf(SW, SW / 2), left: canvasOf(SW, SW / 2) },
+      text: { right: canvasOf(SW, SW / 2), left: canvasOf(SW, SW / 2) },
       plate: canvasOf(512, 512),
     }
     const draw = () => {
@@ -169,14 +167,21 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       canvas.height = Math.round(size.h * dpr)
       const panels = panelsFor(config)
       // Part colours and plate backgrounds are filled piece by piece below.
-      const opt = { pieces: true }
-      paintSheet(sheets.right, config, 'right', panels, opt)
-      paintSheet(sheets.left, config, 'left', panels, opt)
-      paintSheet(sheets.rightPlain, config, 'right', panels, { ...opt, lettering: false })
-      paintSheet(sheets.leftPlain, config, 'left', panels, { ...opt, lettering: false })
-      // Lettering and layers only, to go over solid-coloured pieces.
-      paintSheet(sheets.rightOver, config, 'right', panels, { ...opt, art: false })
-      paintSheet(sheets.leftOver, config, 'left', panels, { ...opt, art: false })
+      for (const side of ['right', 'left'] as const) {
+        paintSheet(sheets.plain[side], config, side, panels, { pieces: true, lettering: false })
+        paintSheet(sheets.text[side], config, side, panels, { pieces: true, art: false, layers: 'none' })
+      }
+      const layerSheets = new Map<string, HTMLCanvasElement | null>()
+      const layersOf = (role: Role, side: Side) => {
+        const k = `${role}|${side}`
+        if (!layerSheets.has(k)) {
+          const any = config.layers.some((l) => (l.panel === role || l.panel === 'kit') && !l.cover)
+          const c = any ? canvasOf(SW, SW / 2) : null
+          if (c) paintSheet(c, config, side, panels, { pieces: true, art: false, layers: role as LayerPanel, text: false })
+          layerSheets.set(k, c)
+        }
+        return layerSheets.get(k)!
+      }
       paintFrontPlate(sheets.plate, config)
 
       const ctx = canvas.getContext('2d')!
@@ -214,13 +219,18 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
           // lettering and layers go on top.
           const solid = pieceFill(config, host, panelKey(host, template.pieces))
           if (solid) fillPieceSolid(ctx, config, p, solid, V)
-          const sheet = solid ? (lettered ? (side === 'right' ? sheets.rightOver : sheets.leftOver) : null) : side === 'right' ? (lettered ? sheets.right : sheets.rightPlain) : lettered ? sheets.left : sheets.leftPlain
           setM(mul6(mul6(V, invert(toWorld)), sheetToWorld(side, SW)))
-          if (sheet) ctx.drawImage(sheet, 0, 0)
+          if (!solid) ctx.drawImage(sheets.plain[side], 0, 0)
+          if (lettered) {
+            // This panel's own layers, then the number and lettering.
+            const own = layersOf(host.role, side)
+            if (own) ctx.drawImage(own, 0, 0)
+            ctx.drawImage(sheets.text[side], 0, 0)
+          }
         }
         // Anything designed on this piece itself.
         const key = panelKey(host, template.pieces)
-        for (const l of config.layers) if (l.panel === key && !l.cover) drawPieceLayer(ctx, l, host.bbox, V, key !== `p${host.id}`)
+        for (const l of config.layers) if (l.panel === key && pieceIdOf(l.panel) !== null && !l.cover) drawPieceLayer(ctx, l, host.bbox, V, key !== `p${host.id}`)
         ctx.restore()
       }
       // Cut lines on top; the panel being designed stands out, the rest dims.
@@ -276,6 +286,8 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     const v = dx * Math.sin(a) + dy * Math.cos(a)
     return Math.abs(u) < w / 2 + tol && Math.abs(v) < h / 2 + tol
   }
+  // Whether a main-panel (or whole-kit) layer shows on a piece.
+  const onPanel = (l: Layer, host: TemplatePiece) => MAIN.includes(host.role) && (l.panel === 'kit' || l.panel === host.role)
   // A piece-panel layer's box in template units.
   const pieceBox = (l: Layer, piece: TemplatePiece) => {
     const f = pieceFrame(l, piece.bbox)
@@ -292,8 +304,8 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
         // Template y points down: flip it to measure the turn.
         return inBox(t[0] - b.cx, b.cy - t[1], b.w, b.h, m.rotation, 2 / fit!.s)
       }
-      // Main-panel layers only appear on the main panels.
-      if (!MAIN.includes(hit.host.role)) return false
+      // A panel's layers only appear on that panel's pieces.
+      if (!onPanel(l, hit.host)) return false
       const w = apply(hit.toWorld, t)
       const b = layerBox(l, panels)
       return inBox(w[0] - b.cx, w[1] - b.cy, b.w, b.h, l.rotation, 0.015)
@@ -340,22 +352,26 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     if (d.own) {
       // A layer on its own piece moves in the piece's frame.
       const { x, y, w, h } = d.piece.bbox
-      const fx = (t[0] - d.dx - x) / w
-      updateLayer(d.id, { x: +(d.mirror ? 1 - fx : fx).toFixed(3), y: +(1 - (t[1] - d.dy - y) / h).toFixed(3) })
+      const fx = Math.min(1, Math.max(0, (t[0] - d.dx - x) / w))
+      const fy = Math.min(1, Math.max(0, 1 - (t[1] - d.dy - y) / h))
+      updateLayer(d.id, { x: +(d.mirror ? 1 - fx : fx).toFixed(3), y: +fy.toFixed(3) })
       return
     }
-    // Follow whichever piece the pointer is over; off the pieces, keep the
-    // one the drag started on.
-    const over = pieceAt(t)
-    const toWorld = over && MAIN.includes(over.host.role) ? over.toWorld : pieceToWorld(d.piece, template.pieces)
-    const [wx, wy] = apply(toWorld, t)
+    // Follow whichever piece of the layer's panel the pointer is over; off
+    // them, keep the one the drag started on. The layer can't leave its panel.
     const l = config.layers.find((x) => x.id === d.id)
     if (!l) return
-    const p = layerBox(l, panels).panel
-    updateLayer(d.id, {
-      x: +((wx - d.dx - p.x) / p.w).toFixed(3),
-      y: +((wy - d.dy - p.y) / p.h).toFixed(3),
-    })
+    const over = pieceAt(t)
+    const toWorld = over && onPanel(l, over.host) ? over.toWorld : pieceToWorld(d.piece, template.pieces)
+    const [wx, wy] = apply(toWorld, t)
+    const box = layerBox(l, panels)
+    const p = box.panel
+    // Keep the whole layer inside its panel (its centre, if it is bigger).
+    const clamp = (v: number, half: number) => {
+      const m = Math.min(0.5, half)
+      return +Math.min(1 - m, Math.max(m, v)).toFixed(3)
+    }
+    updateLayer(d.id, { x: clamp((wx - d.dx - p.x) / p.w, box.w / 2 / p.w), y: clamp((wy - d.dy - p.y) / p.h, box.h / 2 / p.h) })
   }
   const up = () => (drag.current = null)
 

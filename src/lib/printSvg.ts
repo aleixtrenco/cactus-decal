@@ -14,7 +14,7 @@ import { FONTS } from '../data/fonts'
 import { bikeById, typeLabel } from '../data/bikes'
 import { designById } from '../data/designs'
 import { FINISHES, MATERIALS } from '../data/pricing'
-import { platesOnly, type KitConfig } from '../store/config'
+import { pieceIdOf, platesOnly, type KitConfig, type LayerPanel } from '../store/config'
 import { drawPieceLayer, fillPieceSolid, paintFrontPlate, paintSheet, pieceFill, WORLD, type Side } from './graphics'
 import { paintStyle } from './paint'
 import { builtInTemplate, invert, mount, panelKey, pieceElements, pieceToWorld, panelsFor, toRoot, type BikeTemplate, type M6, type Role, type TemplatePiece } from './templates'
@@ -312,26 +312,35 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
   const bleed = vw * 0.002
   // Lettering and customer layers only on the main pieces, not on trim.
   const panels = panelsFor(cfg)
-  // Part colours and plate backgrounds are filled piece by piece below.
-  const art = (side: Side, lettering: boolean, design = true) => record(f, SHEET_W, SHEET_W / 2, (c) => paintSheet(c, cfg, side, panels, { lettering, art: design, pieces: true }))
+  // Part colours, plate backgrounds, panel layers and lettering are added
+  // piece by piece below, so each shows only on its own pieces.
+  const art = (side: Side) => record(f, SHEET_W, SHEET_W / 2, (c) => paintSheet(c, cfg, side, panels, { lettering: false, pieces: true }))
+  const over = (side: Side, what: 'text' | Role) =>
+    record(f, SHEET_W, SHEET_W / 2, (c) =>
+      paintSheet(c, cfg, side, panels, what === 'text' ? { art: false, pieces: true, layers: 'none' } : { art: false, pieces: true, layers: what as LayerPanel, text: false }),
+    )
   const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
   const big = `x="${n(vx - vw)}" y="${n(vy - vh)}" width="${n(vw * 3)}" height="${n(vh * 3)}"`
 
-  const defs: string[] = [
-    `<g id="art-right">${art('right', true)}</g>`,
-    `<g id="art-left">${art('left', true)}</g>`,
-    `<g id="art-right-plain">${art('right', false)}</g>`,
-    `<g id="art-left-plain">${art('left', false)}</g>`,
-    // Lettering and layers only, over pieces filled with a solid colour.
-    `<g id="art-right-over">${art('right', true, false)}</g>`,
-    `<g id="art-left-over">${art('left', true, false)}</g>`,
-  ]
+  const defs: string[] = []
+  for (const side of ['right', 'left'] as const) defs.push(`<g id="art-${side}">${art(side)}</g>`, `<g id="text-${side}">${over(side, 'text')}</g>`)
+  // A main panel's own layers (and whole-kit layers), when there are any.
+  const panelDefs = new Set<string>()
+  const panelLayers = (side: Side, role: Role) => {
+    if (!cfg.layers.some((l) => (l.panel === role || l.panel === 'kit') && !l.cover)) return ''
+    const id = `layers-${role}-${side}`
+    if (!panelDefs.has(id)) {
+      panelDefs.add(id)
+      defs.push(`<g id="${id}">${over(side, role)}</g>`)
+    }
+    return `#${id}`
+  }
   const printed: string[] = []
   // Anything the customer designed on a piece itself, in template units.
   const own = (p: TemplatePiece) => {
     const host = p.parent !== undefined ? (t.pieces.find((q) => q.id === p.parent) ?? p) : p
     const key = panelKey(host, t.pieces)
-    const ls = cfg.layers.filter((l) => l.panel === key && !l.cover)
+    const ls = cfg.layers.filter((l) => l.panel === key && pieceIdOf(l.panel) !== null && !l.cover)
     return ls.length ? record(f, vw, vh, (c) => ls.forEach((l) => drawPieceLayer(c.getContext('2d')!, l, host.bbox, [1, 0, 0, 1, 0, 0], key !== `p${host.id}`))) : ''
   }
   for (const p of pieces) {
@@ -361,8 +370,8 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
           fillPieceSolid(ctx, cfg, p, solid, [1, 0, 0, 1, 0, 0])
         })
       : ''
-    const ref = solid ? (lettered ? `#art-${side}-over` : '') : `#art-${side}${lettered ? '' : '-plain'}`
-    const use = ref ? `<use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/>` : ''
+    const refs = [solid ? '' : `#art-${side}`, ...(lettered ? [panelLayers(side, host.role), `#text-${side}`] : [])].filter(Boolean)
+    const use = refs.map((ref) => `<use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/>`).join('')
     printed.push(`<g id="piece-${p.id}-${p.role}" mask="url(#m${p.id})">${fill}${use}${own(p)}</g>`)
   }
   const cut = pieces.map((p) => paint(shapeOf(p), `fill="none" stroke="#ec008c" stroke-width="${n(vw * 0.0004)}"`)).join('\n')

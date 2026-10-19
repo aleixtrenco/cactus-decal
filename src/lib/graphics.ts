@@ -765,9 +765,6 @@ function anchorBox(panels: Seg[][]) {
   return best
 }
 
-// The largest rectangle of a given width/height ratio that fits inside a
-// panel's real outline (not just its bounding box), so the race number never
-// crosses a slanted edge. Cached: it only changes with the outline.
 // `seen` (optional) marks where the plastics really show on a 3D model, so a
 // box also avoids vents, holes and parts covered by something else.
 export interface SeenArea {
@@ -775,31 +772,56 @@ export interface SeenArea {
   at: (x: number, y: number) => boolean
 }
 
-const fitCache = new Map<string, Rect>()
-type Rect = { x0: number; y0: number; x1: number; y1: number }
-function insideBox(panels: Seg[][], aspect: number, seen?: SeenArea): Rect {
-  const pts = (seg: Seg[]) => seg.map((p) => (p.length === 5 ? [p[3], p[4]] : [p[1], p[2]]) as [number, number])
-  const b = anchorBox(panels)
-  // A panel cut in more than one piece (e.g. a side plate split around the
-  // airbox) counts as one area: inside any of its pieces.
-  const polys = panels.map(pts).filter((q) => q.length > 2)
-  if (!polys.length) return b
-  const key = `${aspect}|${polys.map((q) => `${q.length}|${q[0]}|${q[q.length >> 1]}`).join('/')}|${b.x0},${b.y0},${b.x1},${b.y1}|${seen?.id ?? ''}`
-  const hit = fitCache.get(key)
-  if (hit) return hit
-  const inPoly = (poly: [number, number][], x: number, y: number) => {
-    let wn = 0
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const [xi, yi] = poly[j]
-      const [xj, yj] = poly[i]
-      const c = (xj - xi) * (y - yi) - (x - xi) * (yj - yi)
-      if (yi <= y) {
-        if (yj > y && c > 0) wn++
-      } else if (yj <= y && c < 0) wn--
-    }
-    return wn !== 0
+const segPts = (seg: Seg[]) => seg.map((p) => (p.length === 5 ? [p[3], p[4]] : [p[1], p[2]]) as [number, number])
+
+function inPoly(poly: [number, number][], x: number, y: number) {
+  let wn = 0
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[j]
+    const [xj, yj] = poly[i]
+    const c = (xj - xi) * (y - yi) - (x - xi) * (yj - yi)
+    if (yi <= y) {
+      if (yj > y && c > 0) wn++
+    } else if (yj <= y && c < 0) wn--
   }
-  const inside = (x: number, y: number) => polys.some((q) => inPoly(q, x, y))
+  return wn !== 0
+}
+
+// Tests for a box of the given width/height ratio centred at (cx, cy):
+// inside any of the polygons (a panel cut in more than one piece counts as
+// one area) and, on a 3D model, where the plastics show.
+// Which polygons cover each cell of a grid over their bounds, worked out once
+// so the many inside tests below are lookups (outlines have hundreds of points).
+function polyGrid(polys: [number, number][][]) {
+  const pts = polys.flat()
+  const x0 = Math.min(...pts.map((p) => p[0]))
+  const y0 = Math.min(...pts.map((p) => p[1]))
+  const w = Math.max(...pts.map((p) => p[0])) - x0 || 1
+  const h = Math.max(...pts.map((p) => p[1])) - y0 || 1
+  const N = 220
+  const nx = w >= h ? N : Math.max(8, Math.round((N * w) / h))
+  const ny = w >= h ? Math.max(8, Math.round((N * h) / w)) : N
+  const bits = new Uint8Array(nx * ny)
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) {
+      const x = x0 + ((i + 0.5) * w) / nx
+      const y = y0 + ((j + 0.5) * h) / ny
+      let m = 0
+      polys.forEach((q, k) => {
+        if (k < 8 && inPoly(q, x, y)) m |= 1 << k
+      })
+      bits[j * nx + i] = m
+    }
+  return (x: number, y: number) => {
+    const i = Math.floor(((x - x0) / w) * nx)
+    const j = Math.floor(((y - y0) / h) * ny)
+    return i < 0 || j < 0 || i >= nx || j >= ny ? 0 : bits[j * nx + i]
+  }
+}
+
+function boxFit(polys: [number, number][][], aspect: number, seen?: SeenArea) {
+  const cover = polyGrid(polys)
+  const inside = (x: number, y: number) => cover(x, y) !== 0
   const fits = (cx: number, cy: number, h: number) => {
     const w = h * aspect
     if (seen)
@@ -817,6 +839,37 @@ function insideBox(panels: Seg[][], aspect: number, seen?: SeenArea): Rect {
     }
     return true
   }
+  // The tallest box that fits at a centre (0 if none).
+  const grow = (cx: number, cy: number, max: number, from = 0) => {
+    if (!fits(cx, cy, from + 1e-4)) return from && fits(cx, cy, from) ? from : 0
+    let lo = from
+    let hi = max
+    for (let k = 0; k < 12; k++) {
+      const mid = (lo + hi) / 2
+      if (fits(cx, cy, mid)) lo = mid
+      else hi = mid
+    }
+    return lo
+  }
+  return { inside, fits, grow, cover }
+}
+
+const rectAt = (cx: number, cy: number, h: number, aspect: number): Rect => ({ x0: cx - (h * aspect) / 2, y0: cy - h / 2, x1: cx + (h * aspect) / 2, y1: cy + h / 2 })
+
+// The largest rectangle of a given width/height ratio that fits inside a
+// panel's real outline (not just its bounding box), so the race number never
+// crosses a slanted edge. Cached: it only changes with the outline.
+type Rect = { x0: number; y0: number; x1: number; y1: number }
+const fitCache = new Map<string, Rect>()
+const polysKey = (polys: [number, number][][]) => polys.map((q) => `${q.length}|${q[0]}|${q[q.length >> 1]}`).join('/')
+function insideBox(panels: Seg[][], aspect: number, seen?: SeenArea): Rect {
+  const b = anchorBox(panels)
+  const polys = panels.map(segPts).filter((q) => q.length > 2)
+  if (!polys.length) return b
+  const key = `${aspect}|${polysKey(polys)}|${seen?.id ?? ''}`
+  const hit = fitCache.get(key)
+  if (hit) return hit
+  const { inside, grow } = boxFit(polys, aspect, seen)
   let best = { cx: (b.x0 + b.x1) / 2, cy: (b.y0 + b.y1) / 2, h: 0 }
   const W = b.x1 - b.x0
   const H = b.y1 - b.y0
@@ -825,25 +878,74 @@ function insideBox(panels: Seg[][], aspect: number, seen?: SeenArea): Rect {
       const cx = b.x0 + (W * i) / 24
       const cy = b.y0 + (H * j) / 16
       if (!inside(cx, cy) || (seen && !seen.at(cx, cy))) continue
-      let lo = best.h
-      let hi = H
-      if (!fits(cx, cy, lo + 1e-4)) continue
-      for (let k = 0; k < 12; k++) {
-        const mid = (lo + hi) / 2
-        if (fits(cx, cy, mid)) lo = mid
-        else hi = mid
-      }
-      if (lo > best.h) best = { cx, cy, h: lo }
+      const h = grow(cx, cy, H, best.h)
+      if (h > best.h) best = { cx, cy, h }
     }
-  const w = best.h * aspect
-  const out: Rect = best.h ? { x0: best.cx - w / 2, y0: best.cy - best.h / 2, x1: best.cx + w / 2, y1: best.cy + best.h / 2 } : seen ? insideBox(panels, aspect) : b
+  const out = best.h ? rectAt(best.cx, best.cy, best.h, aspect) : seen ? insideBox(panels, aspect) : b
   fitCache.set(key, out)
   return out
 }
 
-// Where the race number goes: centred in the biggest box inside the side plate.
-function numberBox(panels: PanelSet, seen?: SeenArea) {
-  const b = insideBox(panels.sidePlate, 1.2, seen)
+// A side plate cut in two (e.g. around the airbox): one number across both
+// parts, half on each, so it reads complete and bigger once fitted. The
+// biggest box that sits at least a third on each part; the usual box when the
+// parts don't allow a good-sized one.
+function splitBox(panels: Seg[][], aspect: number, seen?: SeenArea): Rect {
+  const whole = insideBox(panels, aspect, seen)
+  const polys = panels
+    .map(segPts)
+    .filter((q) => q.length > 2)
+    .sort((p, q) => polyArea(q) - polyArea(p))
+  if (polys.length < 2) return whole
+  const key = `split|${aspect}|${polysKey(polys)}|${seen?.id ?? ''}`
+  const hit = fitCache.get(key)
+  if (hit) return hit
+  const { inside, grow, cover } = boxFit(polys, aspect, seen)
+  const b = anchorBox(panels)
+  const W = b.x1 - b.x0
+  const H = b.y1 - b.y0
+  const share = (cx: number, cy: number, h: number) => {
+    const w = h * aspect
+    let a = 0
+    let bb = 0
+    let n = 0
+    for (let i = 0; i <= 8; i++)
+      for (let j = 0; j <= 4; j++) {
+        const x = cx - w / 2 + (w * i) / 8
+        const y = cy - h / 2 + (h * j) / 4
+        n++
+        const m = cover(x, y)
+        if (m & 1) a++
+        if (m & 2) bb++
+      }
+    return Math.min(a, bb) / n
+  }
+  let best = { cx: 0, cy: 0, h: 0 }
+  for (let i = 1; i < 32; i++)
+    for (let j = 1; j < 20; j++) {
+      const cx = b.x0 + (W * i) / 32
+      const cy = b.y0 + (H * j) / 20
+      if (!inside(cx, cy) || (seen && !seen.at(cx, cy))) continue
+      // Shrink until the box is shared fairly between the parts.
+      for (let h = grow(cx, cy, H); h > Math.max(best.h, H * 0.05); h *= 0.85) {
+        if (share(cx, cy, h) >= 0.33) {
+          best = { cx, cy, h }
+          break
+        }
+      }
+    }
+  const out = best.h >= (whole.y1 - whole.y0) * 0.55 ? rectAt(best.cx, best.cy, best.h, aspect) : whole
+  fitCache.set(key, out)
+  return out
+}
+
+const polyArea = (q: [number, number][]) => Math.abs(q.reduce((a, [x, y], i) => a + x * q[(i + 1) % q.length][1] - q[(i + 1) % q.length][0] * y, 0)) / 2
+
+// Where the race number goes: centred in the biggest box inside the side
+// plate (on that side of the bike: the two sides can be cut differently).
+function numberBox(panels: PanelSet, seen?: SeenArea, side: Side = 'right') {
+  const plates = side === 'left' && panels.sidePlateLeft?.length ? panels.sidePlateLeft : panels.sidePlate
+  const b = plates.length > 1 ? splitBox(plates, 1.2, seen) : insideBox(plates, 1.2, seen)
   const w = b.x1 - b.x0
   const h = b.y1 - b.y0
   return { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, w: w * 1.05, h: h * 1.05 }
@@ -882,7 +984,14 @@ export function paintSheet(
   cfg: KitConfig,
   side: Side,
   panels: PanelSet = panelsFor(cfg),
-  { lettering = true, art = true, pieces = false, seen }: { lettering?: boolean; art?: boolean; pieces?: boolean; seen?: SeenArea } = {},
+  {
+    lettering = true,
+    art = true,
+    pieces = false,
+    layers = 'all',
+    text = true,
+    seen,
+  }: { lettering?: boolean; art?: boolean; pieces?: boolean; layers?: 'all' | 'none' | LayerPanel; text?: boolean; seen?: SeenArea } = {},
 ) {
   const W = canvas.width
   const H = canvas.height
@@ -936,11 +1045,18 @@ export function paintSheet(
   ctx.restore()
 
   // Layers on a single template piece are drawn with that piece instead.
-  for (const l of cfg.layers) if (!(l.kind === 'image' && l.cover) && pieceIdOf(l.panel) === null) drawLayer(ctx, l, panels, side, W, H)
+  // `layers` can limit this to one panel (plus whole-kit layers), so a
+  // renderer can keep a panel's layers on that panel's pieces only.
+  const wanted = (l: Layer) => layers === 'all' || (layers !== 'none' && (l.panel === layers || l.panel === 'kit'))
+  for (const l of cfg.layers) if (!(l.kind === 'image' && l.cover) && pieceIdOf(l.panel) === null && wanted(l)) drawLayer(ctx, l, panels, side, W, H)
+  if (!text) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    return
+  }
 
   const font = fontById(cfg.rider.font).css
   const T = shroudText(panels, seen)
-  drawText(ctx, cfg.rider.number, numberBox(panels, seen), side, W, H, font, cfg.rider.numberColor, outlineFor(cfg.rider.numberColor) === '#101010' ? '#101010' : undefined)
+  drawText(ctx, cfg.rider.number, numberBox(panels, seen, side), side, W, H, font, cfg.rider.numberColor, outlineFor(cfg.rider.numberColor) === '#101010' ? '#101010' : undefined)
   drawText(ctx, cfg.rider.name.toUpperCase(), T.name, side, W, H, font, cfg.rider.nameColor, outlineFor(cfg.rider.nameColor))
   if (cfg.makeLettering) {
     drawText(ctx, make.make.toUpperCase(), T.make, side, W, H, FONTS.italic.css, cfg.colors.accent, outlineFor(cfg.colors.accent))
@@ -1042,10 +1158,12 @@ const anchorBoxOf = (segs: Seg[][]): Box => {
   const b = anchorBox(segs)
   return { x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0 }
 }
+type MainPanel = 'shroud' | 'sidePlate' | 'rearFender' | 'frontFender'
+
 
 // Where a layer sits in world units: its centre and its height.
 export function layerFrame(l: Layer, panels: PanelSet) {
-  const b = l.panel === 'kit' || pieceIdOf(l.panel) !== null ? KIT_BOX : anchorBox(panels[l.panel as keyof PanelSet])
+  const b = l.panel === 'kit' || pieceIdOf(l.panel) !== null ? KIT_BOX : anchorBox(panels[l.panel as MainPanel])
   const w = b.x1 - b.x0
   const h = b.y1 - b.y0
   return { cx: b.x0 + l.x * w, cy: b.y0 + l.y * h, h: l.size * h, panel: { x: b.x0, y: b.y0, w, h } }
@@ -1178,7 +1296,8 @@ export function drawPieceLayer(ctx: CanvasRenderingContext2D, l: Layer, bbox: { 
 // For real 3D models: the kit artwork with everything outside the printed
 // pieces made transparent, so it can be projected onto the model.
 export function paintDecalSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side, outlines: [number, number][][], panels: PanelSet = panelsFor(cfg), seen?: SeenArea) {
-  paintSheet(canvas, cfg, side, panels, { pieces: true, seen })
+  // The design only: lettering and layers are added piece by piece.
+  paintSheet(canvas, cfg, side, panels, { pieces: true, lettering: false, seen })
   const ctx = canvas.getContext('2d')!
   ctx.save()
   worldTransform(ctx, side, canvas.width, canvas.height)

@@ -19,7 +19,7 @@ import { drawPieceLayer, ensureAssets, fillPieceSolid, paintDecalSheet, paintFro
 import { FRONT_WHEEL } from '../lib/shapes'
 import { invert, modelUrl, mul6, onModel, panelKey, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role, type TemplatePiece } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
-import { plasticsHex, platesOnly, type KitConfig } from '../store/config'
+import { pieceIdOf, plasticsHex, platesOnly, type KitConfig, type LayerPanel } from '../store/config'
 
 // Overall bike length the model is fitted to (rear fender tip to front tyre).
 const FIT = { x0: -1.2, x1: 1.17 }
@@ -264,7 +264,7 @@ function findFender(root: THREE.Object3D) {
 function paintPieceLayers(c: HTMLCanvasElement, cfg: KitConfig, t: BikeTemplate, piece: TemplatePiece, base: M6) {
   const host = piece.parent !== undefined ? (t.pieces.find((q) => q.id === piece.parent) ?? piece) : piece
   const key = panelKey(host, t.pieces)
-  const ls = cfg.layers.filter((l) => l.panel === key && !l.cover)
+  const ls = cfg.layers.filter((l) => l.panel === key && pieceIdOf(l.panel) !== null && !l.cover)
   if (!ls.length) return
   const ctx = c.getContext('2d')!
   ctx.save()
@@ -286,18 +286,22 @@ const worldToSheet = (side: Side, w: number) => {
 }
 
 // The design with a piece's own base colour, cached per paint.
-// The lettering and layers alone (transparent elsewhere), to go over pieces
-// filled with a solid colour. Cached per paint.
+// Transparent sheets drawn piece by piece over the design: the number and
+// lettering ('text'), or one main panel's layers (with whole-kit layers), so
+// a layer only shows on its own panel. Cached per paint; null when empty.
 function overlays(cfg: KitConfig, panels: ReturnType<typeof panelSet>, w: number, seen?: SeenArea) {
-  const made = new Map<Side, HTMLCanvasElement>()
-  return (side: Side) => {
-    let c = made.get(side)
-    if (!c) {
-      c = Object.assign(document.createElement('canvas'), { width: w, height: w / 2 })
-      paintSheet(c, cfg, side, panels, { art: false, pieces: true, seen })
-      made.set(side, c)
+  const made = new Map<string, HTMLCanvasElement | null>()
+  return (side: Side, what: 'text' | Role) => {
+    const key = `${side}|${what}`
+    if (!made.has(key)) {
+      let c: HTMLCanvasElement | null = null
+      if (what === 'text' || cfg.layers.some((l) => (l.panel === what || l.panel === 'kit') && !l.cover)) {
+        c = Object.assign(document.createElement('canvas'), { width: w, height: w / 2 })
+        paintSheet(c, cfg, side, panels, what === 'text' ? { art: false, pieces: true, layers: 'none', seen } : { art: false, pieces: true, layers: what as LayerPanel, text: false, seen })
+      }
+      made.set(key, c)
     }
-    return c
+    return made.get(key)!
   }
 }
 
@@ -330,9 +334,12 @@ function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: 
       if (p.side !== side || !onModel(p, t.pieces) || (roles && !roles.includes(p.role))) continue
       const base = mul6(worldToSheet(side, c.width), pieceToWorld(p, t.pieces))
       const solid = pieceFill(cfg, p, panelKey(p, t.pieces))
-      if (solid) {
-        fillPieceSolid(c.getContext('2d')!, cfg, p, solid, base)
-        if (LETTERED.includes(p.role)) fillPiece(c, p, base, overlay(side), [1, 0, 0, 1, 0, 0])
+      if (solid) fillPieceSolid(c.getContext('2d')!, cfg, p, solid, base)
+      if (LETTERED.includes(p.role)) {
+        for (const what of [p.role, 'text'] as const) {
+          const o = overlay(side, what)
+          if (o) fillPiece(c, p, base, o, [1, 0, 0, 1, 0, 0])
+        }
       }
       paintPieceLayers(c, cfg, t, p, base)
     }
@@ -379,8 +386,8 @@ function paintFender(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: Retu
   ctx.clearRect(0, 0, c.width, c.height)
   const piece = t.pieces.find((p) => p.role === 'frontFender' && p.side === 'center') ?? t.pieces.find((p) => p.role === 'frontFender')
   if (!piece || platesOnly(cfg)) return
-  paintSheet(P.sheets.art, cfg, 'right', panels, { pieces: true })
-  const overlay = overlays(cfg, panels, P.sheets.art.width)('right')
+  paintSheet(P.sheets.art, cfg, 'right', panels, { pieces: true, lettering: false })
+  const overlay = overlays(cfg, panels, P.sheets.art.width)
   const { x, y, w, h } = piece.bbox
   // Template → fender sheet (long side of the piece along the sheet's height).
   const S: M6 = h >= w ? [c.width / w, 0, 0, c.height / h, (-x * c.width) / w, (-y * c.height) / h] : [0, c.height / w, c.width / h, 0, (-y * c.width) / h, (-x * c.height) / w]
@@ -395,10 +402,13 @@ function paintFender(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: Retu
     // The fender and the pieces on it (e.g. its centre) can have their own colour.
     const toArt = mul6(mul6(S, invert(pieceToWorld(p, t.pieces))), [k, 0, 0, -k, WORLD.x0, WORLD.y1])
     const solid = pieceFill(cfg, p, panelKey(p, t.pieces))
-    if (solid) {
-      fillPieceSolid(ctx, cfg, p, solid, S)
-      if (LETTERED.includes(p.role)) fillPiece(c, p, S, overlay, toArt)
-    } else fillPiece(c, p, S, P.sheets.art, toArt)
+    if (solid) fillPieceSolid(ctx, cfg, p, solid, S)
+    else fillPiece(c, p, S, P.sheets.art, toArt)
+    if (LETTERED.includes(p.role))
+      for (const what of [p.role, 'text'] as const) {
+        const o = overlay('right', what)
+        if (o) fillPiece(c, p, S, o, toArt)
+      }
     paintPieceLayers(c, cfg, t, p, S)
   }
 }
