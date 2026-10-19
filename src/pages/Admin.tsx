@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Header } from '../components/Chrome'
 import Icon from '../components/Icon'
+import ModelEditor from '../components/ModelEditor'
 import PieceMapper from '../components/PieceMapper'
 import { designPreview, LazyStage, ProofCanvas } from '../components/bits'
 import { BIKES, MAKES, bikeById, type Make } from '../data/bikes'
@@ -310,6 +311,17 @@ function Templates({ pw, mode }: { pw: string; mode: Mode }) {
             onChange={(t) => {
               useTemplates.getState().put(t)
               setDrafts((d) => ({ ...d, [selected]: { ...d[selected], template: t } }))
+            }}
+          />
+        )}
+        {(draft?.template ?? templates[selected]) && (
+          <ModelEditor
+            template={(draft?.template ?? templates[selected])!}
+            pw={pw}
+            online={mode === 'online'}
+            onChange={(t) => {
+              useTemplates.getState().put(t)
+              setDrafts((d) => ({ ...d, [selected]: { template: t, warnings: d[selected]?.warnings ?? [] } }))
             }}
           />
         )}

@@ -2061,3 +2061,51 @@ p {
 .mapper-edit {
   margin-top: 8px;
 }
+
+.model-editor {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.sliders {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px 20px;
+}
+.slider {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.slider input {
+  accent-color: var(--cactus);
+  min-height: 28px;
+}
+.placer svg {
+  width: 100%;
+  height: auto;
+  background: #e9e6dc;
+  border-radius: var(--r-md);
+  color: #3a3a33;
+  touch-action: none;
+}
+.placer-piece {
+  fill: rgba(140, 214, 58, 0.35);
+  stroke: #2b5d10;
+  stroke-width: 0.003;
+  cursor: grab;
+}
+.placer-piece.placed {
+  fill: rgba(255, 122, 26, 0.35);
+  stroke: #a34400;
+}
+.placer-piece.on {
+  stroke: #000;
+  stroke-width: 0.006;
+}
+.placer-piece:focus-visible {
+  outline: none;
+  stroke: #000;
+  stroke-width: 0.008;
+}

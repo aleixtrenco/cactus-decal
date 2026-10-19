@@ -23,7 +23,7 @@ export function uvFor(x: number, y: number, side: Side): [number, number] {
 // Sheet width in px. Height is always half (the world box is 2:1).
 export const sheetWidth = () => (typeof window !== 'undefined' && window.innerWidth < 700 ? 1024 : 2048)
 
-function worldTransform(ctx: CanvasRenderingContext2D, side: Side, W: number, H: number) {
+export function worldTransform(ctx: CanvasRenderingContext2D, side: Side, W: number, H: number) {
   const sx = W / WW
   const sy = H / WH
   if (side === 'right') ctx.setTransform(sx, 0, 0, -sy, -WORLD.x0 * sx, H + WORLD.y0 * sy)
@@ -438,4 +438,23 @@ export async function ensureAssets(cfg: KitConfig) {
     document.fonts.load('700 40px "Saira"'),
     ...cfg.logos.map((l) => loadImage(l.src).catch(() => null)),
   ])
+}
+
+// For real 3D models: the kit artwork with everything outside the printed
+// pieces made transparent, so it can be projected onto the model.
+export function paintDecalSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side, outlines: [number, number][][], panels: PanelSet = panelsFor(cfg)) {
+  paintSheet(canvas, cfg, side, panels)
+  const ctx = canvas.getContext('2d')!
+  ctx.save()
+  worldTransform(ctx, side, canvas.width, canvas.height)
+  ctx.globalCompositeOperation = 'destination-in'
+  ctx.beginPath()
+  for (const o of outlines) {
+    o.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)))
+    ctx.closePath()
+  }
+  ctx.fillStyle = '#000'
+  ctx.fill('nonzero')
+  ctx.restore()
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
 }

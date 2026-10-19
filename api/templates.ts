@@ -16,15 +16,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (!requireAdmin(req, res)) return
     if (req.method === 'POST') {
-      const b = body<{ template: Record<string, unknown>; svgText: string }>(req)
+      const b = body<{ template: Record<string, unknown>; svgText?: string }>(req)
       const id = safeId(b.template?.bikeId)
-      if (!id || typeof b.svgText !== 'string' || !b.svgText.includes('<svg')) return res.status(400).json({ error: 'Missing bike or SVG' })
+      if (!id || !Array.isArray(b.template?.pieces)) return res.status(400).json({ error: 'Missing bike or pieces' })
       const opts = { access: ACCESS, addRandomSuffix: false, allowOverwrite: true, cacheControlMaxAge: 60 }
-      await put(`templates/${id}.svg`, b.svgText, { ...opts, contentType: 'image/svg+xml' })
+      // The original SVG is optional on later saves (e.g. only the 3D model
+      // setup changed); the earlier one is kept.
+      let svgUrl = b.template.svgUrl === `templates/${id}.svg` ? b.template.svgUrl : undefined
+      if (typeof b.svgText === 'string') {
+        if (!b.svgText.includes('<svg')) return res.status(400).json({ error: 'That file is not an SVG' })
+        await put(`templates/${id}.svg`, b.svgText, { ...opts, contentType: 'image/svg+xml' })
+        svgUrl = `templates/${id}.svg`
+      }
       // The public JSON never includes the raw SVG.
       const { svgText: _drop, ...meta } = b.template
       void _drop
-      await put(`templates/${id}.json`, JSON.stringify({ ...meta, bikeId: id, svgUrl: `templates/${id}.svg` }), { ...opts, contentType: 'application/json' })
+      await put(`templates/${id}.json`, JSON.stringify({ ...meta, bikeId: id, svgUrl }), { ...opts, contentType: 'application/json' })
       return res.status(200).json({ ok: true })
     }
     if (req.method === 'DELETE') {

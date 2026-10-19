@@ -46,7 +46,24 @@ export interface TemplatePiece {
   outline: Pt[]
   bbox: Box
   area: number
+  // Where the piece sits on the 3D model (template → world), set in /admin.
+  place?: M6
 }
+
+// A real 3D bike for this template, plus how it was lined up.
+export interface ModelSetup {
+  url: string
+  // Turn (degrees about the vertical axis) so the front points to +x.
+  yaw: number
+  // Fine-tuning after the automatic fit.
+  scale: number
+  dx: number
+  dy: number
+  // Front number plate area on the model, in world units.
+  plate: { y: number; w: number; h: number }
+}
+
+export const defaultModelSetup = (url: string): ModelSetup => ({ url, yaw: 0, scale: 1, dx: 0, dy: 0, plate: { y: 1.02, w: 0.3, h: 0.27 } })
 
 export interface BikeTemplate {
   bikeId: string
@@ -57,6 +74,7 @@ export interface BikeTemplate {
   svgUrl?: string
   viewBox: [number, number, number, number]
   pieces: TemplatePiece[]
+  model?: ModelSetup
   updatedAt: string
 }
 
@@ -293,6 +311,15 @@ export function pieceToWorld(p: TemplatePiece, pieces: TemplatePiece[]): M6 {
     const host = pieces.find((q) => q.id === p.parent)
     if (host) return pieceToWorld(host, pieces)
   }
+  if (p.place) return p.place
+  // Left pieces follow their right-side twin once that has been placed.
+  const twin = placedTwin(p, pieces)
+  if (twin?.place) {
+    const kx = twin.bbox.w / p.bbox.w
+    const ky = twin.bbox.h / p.bbox.h
+    const flip: M6 = [-kx, 0, 0, ky, twin.bbox.x + twin.bbox.w + p.bbox.x * kx, twin.bbox.y - p.bbox.y * ky]
+    return mul6(twin.place, flip)
+  }
   const t = targetBox(p.role === 'other' || p.role === 'ignore' || p.role === 'frontPlate' ? 'shroud' : p.role)
   const k = Math.min(t.w / p.bbox.w, t.h / p.bbox.h)
   const sx = p.side === 'left' ? -k : k
@@ -302,6 +329,30 @@ export function pieceToWorld(p: TemplatePiece, pieces: TemplatePiece[]): M6 {
   const tcy = t.y + t.h / 2
   return [sx, 0, 0, -k, tcx - sx * pcx, tcy + k * pcy]
 }
+
+// The placed right-side piece a left piece mirrors: same role, or for trim
+// pieces the same size.
+export function placedTwin(p: TemplatePiece, pieces: TemplatePiece[]) {
+  if (p.side !== 'left') return undefined
+  const cands = pieces.filter((q) => q.side === 'right' && q.place && q.parent === undefined)
+  if (p.role !== 'other') return cands.find((q) => q.role === p.role)
+  return cands.filter((q) => q.role === 'other' && sameSize(q, p, 0.15)).sort((a, b) => Math.abs(a.area - p.area) - Math.abs(b.area - p.area))[0]
+}
+
+const MAIN: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
+// Pieces shown on a real 3D model: the main panels, plus trim pieces once
+// they have been placed in /admin.
+export const onModel = (p: TemplatePiece, pieces: TemplatePiece[]) =>
+  p.parent === undefined && p.side !== 'center' && (MAIN.includes(p.role) || !!p.place || !!placedTwin(p, pieces))
+
+export const mul6 = (p: M6, q: M6): M6 => [
+  p[0] * q[0] + p[2] * q[1],
+  p[1] * q[0] + p[3] * q[1],
+  p[0] * q[2] + p[2] * q[3],
+  p[1] * q[2] + p[3] * q[3],
+  p[0] * q[4] + p[2] * q[5] + p[4],
+  p[1] * q[4] + p[3] * q[5] + p[5],
+]
 
 export const apply = (m: M6, [x, y]: Pt): Pt => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
 
@@ -392,6 +443,16 @@ export function panelSet(t: BikeTemplate | undefined, lift: number, rise: number
     rearFender: or(pick('rearFender'), def.rearFender),
     frontFender: or(pick('frontFender'), def.frontFender),
   }
+}
+
+// Outlines (in world units) of the printed pieces on one side of the bike.
+export function sideOutlines(t: BikeTemplate, side: 'right' | 'left'): Pt[][] {
+  return t.pieces
+    .filter((p) => p.side === side && onModel(p, t.pieces))
+    .map((p) => {
+      const m = pieceToWorld(p, t.pieces)
+      return p.outline.map((pt) => apply(m, pt))
+    })
 }
 
 export function panelsFor(cfg: { bikeId: string }) {

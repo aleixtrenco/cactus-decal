@@ -1,9 +1,11 @@
 import { CameraControls, ContactShadows, Environment, Lightformer } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 import type * as THREE from 'three'
 import type { KitConfig } from '../store/config'
+import { useTemplates, type ModelSetup } from '../lib/templates'
 import Bike from './Bike'
+import RealBike from './RealBike'
 
 export type View = 'hero' | 'three-quarter' | 'right' | 'left' | 'front' | 'rear' | 'plate' | 'top'
 
@@ -99,9 +101,18 @@ export default function Stage({
         <Lightformer intensity={1.2} position={[-5, 1, -1]} rotation-y={Math.PI / 2} scale={[8, 2, 1]} color="#b9d7ff" />
         <Lightformer intensity={0.8} position={[0, 1, -6]} scale={[10, 3, 1]} />
       </Environment>
-      <Bike cfg={cfg} />
-      <ContactShadows position={[0, 0, 0]} opacity={0.55} scale={5} blur={2.4} far={1.2} resolution={512} frames={1} color="#000" />
+      <Suspense fallback={null}>
+        <BikeFor cfg={cfg} />
+        <ContactShadows position={[0, 0, 0]} opacity={0.55} scale={5} blur={2.4} far={1.2} resolution={512} frames={1} color="#000" />
+      </Suspense>
       <Rig view={view} autoRotate={autoRotate} onApi={onApi} />
     </Canvas>
   )
+}
+
+// The real 3D model when this bike has one, otherwise the built-in bike.
+function BikeFor({ cfg }: { cfg: KitConfig }) {
+  const t = useTemplates((s) => s.templates[cfg.bikeId])
+  if (t?.model) return <RealBike key={t.model.url} cfg={cfg} template={t as typeof t & { model: ModelSetup }} />
+  return <Bike cfg={cfg} />
 }

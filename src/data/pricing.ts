@@ -2,7 +2,7 @@
 // material and extras prices are PLACEHOLDERS until confirmed. This file is shared by the website and the
 // Stripe checkout function, so the price a customer sees is the price they pay.
 
-import type { BikeType } from './bikes'
+import type { BikeType } from './bikes.js'
 
 export const CURRENCY = 'AED'
 
