@@ -39,9 +39,11 @@ export const MAKES: MakeInfo[] = [
 ]
 
 export const BIKES: BikeModel[] = [
-  { id: 'ktm-sx-23', make: 'KTM', model: 'SX / SX-F 125–450', years: '2023–2025', type: 'MX' },
+  { id: 'ktm-sx-23', make: 'KTM', model: 'SX / SX-F / XC / XC-F', years: '2023–2024', type: 'MX' },
+  { id: 'ktm-sx-19', make: 'KTM', model: 'SX / SX-F', years: '2019–2022', type: 'MX' },
   { id: 'ktm-sx-14', make: 'KTM', model: 'SX / SX-F 450', years: '2014–2016', type: 'MX' },
-  { id: 'ktm-exc-24', make: 'KTM', model: 'EXC / EXC-F 150–500', years: '2024–2025', type: 'Trail' },
+  { id: 'ktm-exc-24', make: 'KTM', model: 'EXC / EXC-F', years: '2024', type: 'Trail' },
+  { id: 'ktm-exc-20', make: 'KTM', model: 'EXC / XC / XC-F', years: '2020–2023', type: 'Trail' },
   { id: 'ktm-rally-19', make: 'KTM', model: '450 Rally', years: '2019–2024', type: 'Trail' },
   { id: 'ktm-adv-19', make: 'KTM', model: '790 / 890 Adventure R', years: '2019–2022', type: 'Trail' },
   { id: 'ktm-990-06', make: 'KTM', model: '990 Adventure', years: '2006–2013', type: 'Trail' },
