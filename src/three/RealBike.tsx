@@ -17,7 +17,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import type { FinishId } from '../data/pricing'
 import { drawPieceLayer, ensureAssets, paintDecalSheet, paintFrontPlate, paintSheet, pieceVariant, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
 import { FRONT_WHEEL } from '../lib/shapes'
-import { invert, modelUrl, mul6, onModel, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role, type TemplatePiece } from '../lib/templates'
+import { invert, modelUrl, mul6, onModel, panelKey, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role, type TemplatePiece } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
 import { plasticsHex, platesOnly, type KitConfig } from '../store/config'
 
@@ -263,7 +263,8 @@ function findFender(root: THREE.Object3D) {
 // (template units → sheet pixels) and kept inside the piece.
 function paintPieceLayers(c: HTMLCanvasElement, cfg: KitConfig, t: BikeTemplate, piece: TemplatePiece, base: M6) {
   const host = piece.parent !== undefined ? (t.pieces.find((q) => q.id === piece.parent) ?? piece) : piece
-  const ls = cfg.layers.filter((l) => l.panel === `p${host.id}` && !l.cover)
+  const key = panelKey(host, t.pieces)
+  const ls = cfg.layers.filter((l) => l.panel === key && !l.cover)
   if (!ls.length) return
   const ctx = c.getContext('2d')!
   ctx.save()
@@ -272,7 +273,8 @@ function paintPieceLayers(c: HTMLCanvasElement, cfg: KitConfig, t: BikeTemplate,
   piece.outline.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)))
   ctx.closePath()
   ctx.clip()
-  for (const l of ls) drawPieceLayer(ctx, l, host.bbox, base)
+  // The other side's piece of a mirrored pair shows the layers mirrored.
+  for (const l of ls) drawPieceLayer(ctx, l, host.bbox, base, key !== `p${host.id}`)
   ctx.restore()
   ctx.setTransform(1, 0, 0, 1, 0, 0)
 }
@@ -321,7 +323,7 @@ function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: 
     for (const p of t.pieces) {
       if (p.side !== side || !onModel(p, t.pieces) || (roles && !roles.includes(p.role))) continue
       const base = mul6(worldToSheet(side, c.width), pieceToWorld(p, t.pieces))
-      const own = p.role === 'other' ? cfg.partColors?.[`p${p.id}`] : undefined
+      const own = p.role === 'other' ? cfg.partColors?.[panelKey(p, t.pieces)] : undefined
       if (own) fillPiece(c, p, base, variant(side, own), [1, 0, 0, 1, 0, 0])
       paintPieceLayers(c, cfg, t, p, base)
     }
@@ -382,7 +384,7 @@ function paintFender(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: Retu
   const variant = variants(cfg, panels, P.sheets.art.width)
   for (const p of parts) {
     // The fender centre and other pieces on it can have their own colour.
-    const own = p.role === 'other' ? cfg.partColors?.[`p${p.id}`] : undefined
+    const own = p.role === 'other' ? cfg.partColors?.[panelKey(p, t.pieces)] : undefined
     const img = own ? variant('right', own) : P.sheets.art
     fillPiece(c, p, S, img, mul6(mul6(S, invert(pieceToWorld(p, t.pieces))), [k, 0, 0, -k, WORLD.x0, WORLD.y1]))
     paintPieceLayers(c, cfg, t, p, S)

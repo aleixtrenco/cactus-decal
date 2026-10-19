@@ -28,7 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const finish = pick<FinishId>(c.finish, FINISHES, 'gloss')
   const material = pick<MaterialId>(c.material, MATERIALS, 'standard')
   const extras = (Array.isArray(c.extras) ? c.extras : []).filter((x: unknown): x is ExtraId => typeof x === 'string' && x in EXTRAS)
-  const colours = [...Object.values(c.colors ?? {}), c.rider?.numberColor, c.rider?.plateColor, c.rider?.nameColor]
+  const colours = [...Object.values(c.colors ?? {}), c.rider?.numberColor, c.rider?.plateColor, c.rider?.frontPlateColor, c.rider?.nameColor]
   const usesNeon = colours.some((h) => typeof h === 'string' && NEON_HEXES.has(h))
 
   const bike = bikeById(clip(c.bikeId, 40))
@@ -64,7 +64,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         bike: `${bike.make} ${bike.model} (${bike.years})`,
         design: design.name,
         colours: JSON.stringify(c.colors ?? {}).slice(0, 500),
-        rider: clip(`${c.rider?.name ?? ''} #${c.rider?.number ?? ''} font:${c.rider?.font ?? ''} plate:${c.rider?.plateColor ?? ''} num:${c.rider?.numberColor ?? ''} name:${c.rider?.nameColor ?? ''}`, 500),
+        rider: clip(`${c.rider?.name ?? ''} #${c.rider?.number ?? ''} font:${c.rider?.font ?? ''} plate:${c.rider?.plateColor ?? ''} front:${c.rider?.frontPlateColor ?? c.rider?.plateColor ?? ''} num:${c.rider?.numberColor ?? ''} name:${c.rider?.nameColor ?? ''}`, 500),
         plastics: clip(c.plastics, 20),
         order_id: orderId,
         logos: clip(

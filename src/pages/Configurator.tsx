@@ -5,7 +5,7 @@ import { Contours, Header } from '../components/Chrome'
 import ColorField from '../components/ColorField'
 import GraphicsStep from '../components/GraphicsStep'
 import { newId, panelName, panelsAllowed, piecePanels, prepareImage } from '../lib/layers'
-import { useAvailableBikes, useTemplates } from '../lib/templates'
+import { sideOutlines, useAvailableBikes, useTemplates } from '../lib/templates'
 import TemplateDesigner from '../components/TemplateDesigner'
 import Icon from '../components/Icon'
 import { paintCss } from '../lib/paint'
@@ -34,7 +34,7 @@ import {
 } from '../data/pricing'
 import { decodeConfig, encodeConfig } from '../lib/share'
 import { drawProof } from '../lib/proof'
-import { ensureAssets, loadImage } from '../lib/graphics'
+import { ensureAssets, frontPlateColor, loadImage } from '../lib/graphics'
 import { STEPS, pieceIdOf, platesOnly, priceInput, useConfig, type KitConfig, type LayerPanel, type PlasticsId } from '../store/config'
 import type { Paint } from '../lib/paint'
 import type { StageApi, View } from '../three/Stage'
@@ -262,26 +262,155 @@ function StepHead({ title, lead }: { title: string; lead: string }) {
   )
 }
 
+// A small side view of a model's kit: its printed pieces as they sit on the
+// right side of the bike, so customers can recognise their plastics.
+function TemplateThumb({ bikeId }: { bikeId: string }) {
+  const t = useTemplates((s) => s.templates[bikeId])
+  const paths = useMemo(() => {
+    if (!t) return null
+    const outlines = sideOutlines(t, 'right')
+    if (!outlines.length) return null
+    const pts = outlines.flat()
+    const x0 = Math.min(...pts.map((p) => p[0]))
+    const x1 = Math.max(...pts.map((p) => p[0]))
+    const y0 = Math.min(...pts.map((p) => p[1]))
+    const y1 = Math.max(...pts.map((p) => p[1]))
+    // World y points up; SVG y points down.
+    const d = outlines.map((o) => {
+      const step = Math.max(1, Math.floor(o.length / 90))
+      return `M${o.filter((_, i) => i % step === 0).map(([x, y]) => `${(x - x0).toFixed(3)},${(y1 - y).toFixed(3)}`).join('L')}Z`
+    })
+    return { box: `0 0 ${(x1 - x0).toFixed(3)} ${(y1 - y0).toFixed(3)}`, d }
+  }, [t])
+  if (!paths) return <span className="bike-thumb" aria-hidden="true" />
+  return (
+    <svg className="bike-thumb" viewBox={paths.box} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      {paths.d.map((d, i) => (
+        <path key={i} d={d} />
+      ))}
+    </svg>
+  )
+}
+
+// "2019–2022" covers 2020: lets customers search by their bike's year.
+const coversYear = (years: string, y: number) => {
+  const [a, b] = years.split(/[–-]/).map((v) => parseInt(v, 10))
+  return y >= a && y <= (b || a)
+}
+
 function BikeStep() {
   const { config, set } = useConfig()
   const current = bikeById(config.bikeId)
   const [make, setMake] = useState<Make>(current.make)
+  const [query, setQuery] = useState('')
+  const [showSoon, setShowSoon] = useState(false)
   const available = useAvailableBikes()
-  // Every brand is listed; only models with a print template can be designed.
-  const makes = MAKES
   const ready = (id: string) => available.some((b) => b.id === id)
-  const models = BIKES.filter((b) => b.make === make).sort((a, b) => Number(ready(b.id)) - Number(ready(a.id)))
+  const q = query.trim().toLowerCase()
+  const year = /^\d{4}$/.test(q) ? Number(q) : null
+  const matches = (b: (typeof BIKES)[number]) => !q || (year ? coversYear(b.years, year) : `${b.model} ${b.years}`.toLowerCase().includes(q))
+  const ofMake = BIKES.filter((b) => b.make === make && matches(b))
+  const models = ofMake.filter((b) => ready(b.id))
+  const soon = ofMake.filter((b) => !ready(b.id))
+  const groups = (['MX', 'Trail'] as const).map((type) => ({ type, list: models.filter((b) => b.type === type) })).filter((g) => g.list.length)
   const request = (b: { make: string; model: string; years: string }) =>
     `https://wa.me/${CONTACT.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi Cactus Decal Lab, I'd like a custom kit for my ${b.make} ${b.model} (${b.years}).`)}`
   return (
     <>
-      <StepHead title="Your bike" lead="Choose what you're designing, then your make and model so every piece is cut to fit." />
+      <StepHead title="Your bike" lead="Pick your brand, then your model and year. Every piece is cut from that model's real print template." />
+      <div className="bike-current" aria-live="polite">
+        <TemplateThumb bikeId={current.id} />
+        <span>
+          <small>Designing for</small>
+          <b>
+            {current.make} {current.model}
+          </b>
+          <small>
+            {current.years} · {typeLabel(current.type)}
+          </small>
+        </span>
+      </div>
       <div className="group">
-        <div className="group-label">What are you designing?</div>
+        <div className="group-label">1 · Brand</div>
+        <div className="chips">
+          {MAKES.map((m) => {
+            const n = available.filter((b) => b.make === m.make).length
+            return (
+              <button
+                key={m.make}
+                className={`chip${n ? '' : ' chip-soon'}`}
+                aria-pressed={make === m.make}
+                onClick={() => {
+                  setMake(m.make)
+                  setQuery('')
+                  const first = available.find((b) => b.make === m.make)
+                  if (first && current.make !== m.make) set({ bikeId: first.id })
+                }}
+              >
+                {m.make}
+                <small className={n ? 'count' : 'soon'}> {n ? n : 'soon'}</small>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div className="group">
+        <div className="group-label">
+          2 · Model & year <span>{models.length ? `${models.length} available` : ''}</span>
+        </div>
+        <label className="bike-search">
+          <Icon name="search" size={16} />
+          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${make} models, e.g. 450 or 2021`} aria-label={`Search ${make} models`} />
+        </label>
+        {groups.map((g) => (
+          <div key={g.type} className="bike-group">
+            <div className="bike-type">{g.type === 'MX' ? 'Motocross' : 'Enduro, trail & adventure'}</div>
+            <div className="options">
+              {g.list.map((b) => (
+                <button key={b.id} className="option bike-option" aria-pressed={config.bikeId === b.id} onClick={() => set({ bikeId: b.id })}>
+                  <TemplateThumb bikeId={b.id} />
+                  <span>
+                    <b>{b.model}</b>
+                    <small>
+                      <i className="years">{b.years}</i> {formatAED(kitPrice(config.kit, b.type).price)}
+                    </small>
+                  </span>
+                  {config.bikeId === b.id && <Icon name="check" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        {!models.length && <p className="note">{q ? `No ${make} model matches “${query}”.` : `No ${make} templates yet.`} Ask us below and we'll add yours.</p>}
+        {soon.length > 0 && (
+          <div className="bike-soon">
+            <button className="link-btn" onClick={() => setShowSoon(!showSoon)} aria-expanded={showSoon || !models.length}>
+              {showSoon || !models.length ? 'Hide' : 'Show'} models without a template yet ({soon.length})
+            </button>
+            {(showSoon || !models.length) && (
+              <div className="options">
+                {soon.map((b) => (
+                  <div key={b.id} className="option soon-option">
+                    <span>
+                      <b>{b.model}</b>
+                      <small>{b.years} · Template coming soon</small>
+                    </span>
+                    <a className="chip chip-sm" href={request(b)} target="_blank" rel="noreferrer">
+                      Request
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="group">
+        <div className="group-label">3 · What are you designing?</div>
         <div className="options">
           {(
             [
-              ['full', KIT_PRICES[bikeById(config.bikeId).type].label.replace('Custom ', 'Full '), KIT_PARTS, KIT_PRICES[bikeById(config.bikeId).type].price],
+              ['full', KIT_PRICES[current.type].label.replace('Custom ', 'Full '), KIT_PARTS, KIT_PRICES[current.type].price],
               ['plates', 'Number plates only', PLATES_PARTS, PLATES_KIT.price],
             ] as [KitId, string, string, number][]
           ).map(([id, label, note, price]) => (
@@ -293,56 +422,6 @@ function BikeStep() {
               <span className="price">{formatAED(price)}</span>
             </button>
           ))}
-        </div>
-      </div>
-      <div className="group">
-        <div className="group-label">Make</div>
-        <div className="chips">
-          {makes.map((m) => (
-            <button
-              key={m.make}
-              className="chip"
-              aria-pressed={make === m.make}
-              onClick={() => {
-                setMake(m.make)
-                const first = available.find((b) => b.make === m.make)
-                if (first) set({ bikeId: first.id })
-              }}
-            >
-              {m.make}
-              {!available.some((b) => b.make === m.make) && <small className="soon"> soon</small>}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="group">
-        <div className="group-label">Model & year</div>
-        <div className="options">
-          {models.map((b) =>
-            ready(b.id) ? (
-              <button key={b.id} className="option" aria-pressed={config.bikeId === b.id} onClick={() => set({ bikeId: b.id })}>
-                <span>
-                  <b>{b.model}</b>
-                  <small>
-                    {b.years} · {typeLabel(b.type)} · {formatAED(kitPrice(config.kit, b.type).price)}
-                  </small>
-                </span>
-                {config.bikeId === b.id && <Icon name="check" />}
-              </button>
-            ) : (
-              <div key={b.id} className="option soon-option">
-                <span>
-                  <b>{b.model}</b>
-                  <small>
-                    {b.years} · Template coming soon
-                  </small>
-                </span>
-                <a className="chip chip-sm" href={request(b)} target="_blank" rel="noreferrer">
-                  Request
-                </a>
-              </div>
-            ),
-          )}
         </div>
       </div>
       <div className="group">
@@ -414,12 +493,15 @@ function ColourStep() {
   const pieces = piecePanels(template, plates)
   const parts: [LayerPanel, string][] = [...panelsAllowed(plates).filter(([p]) => p !== 'kit'), ...pieces.map((x): [LayerPanel, string] => [x.panel, x.label])]
   const part = parts.some(([p]) => p === chosen) ? chosen : parts[0][0]
-  // The side and front plates share the number-plate background colour.
-  const plateOf = (p: LayerPanel) => p === 'sidePlate' || pieces.find((x) => x.panel === p)?.piece.role === 'frontPlate'
-  const colourOf = (p: LayerPanel) => (plateOf(p) ? config.rider.plateColor : (config.partColors[p] ?? config.colors.base))
+  // The side plates (both sides) and the front plate each have their own
+  // number-plate background colour.
+  const frontOf = (p: LayerPanel) => pieces.find((x) => x.panel === p)?.piece.role === 'frontPlate'
+  const plateOf = (p: LayerPanel) => p === 'sidePlate' || frontOf(p)
+  const colourOf = (p: LayerPanel) => (p === 'sidePlate' ? config.rider.plateColor : frontOf(p) ? frontPlateColor(config) : (config.partColors[p] ?? config.colors.base))
   const value = colourOf(part)
   const custom = !plateOf(part) && !!config.partColors[part]
-  const setPart = (c: Paint) => (plateOf(part) ? setRider({ plateColor: c }) : set({ partColors: { ...config.partColors, [part]: c } }))
+  const setPart = (c: Paint) =>
+    part === 'sidePlate' ? setRider({ plateColor: c }) : frontOf(part) ? setRider({ frontPlateColor: c }) : set({ partColors: { ...config.partColors, [part]: c } })
   const everywhere = () => set({ colors: { ...config.colors, base: value }, partColors: {} })
   const backToKit = () => {
     const next = { ...config.partColors }
@@ -447,7 +529,7 @@ function ColourStep() {
                 <b>
                   <i className="part-sw" style={{ background: paintCss(colourOf(p)) }} aria-hidden="true" /> {l}
                 </b>
-                <small>{plateOf(p) ? 'Number plates' : config.partColors[p] ? swatchName(colourOf(p)) : 'Kit colour'}</small>
+                <small>{p === 'sidePlate' ? `Plate · ${swatchName(colourOf(p))}` : config.partColors[p] ? swatchName(colourOf(p)) : 'Kit colour'}</small>
               </button>
             ))}
         </div>
@@ -586,9 +668,15 @@ function RiderStep() {
       </div>
       <div className="group">
         <div className="group-label">
-          Plate background <span>{swatchName(r.plateColor)}</span>
+          Side plates background <span>{swatchName(r.plateColor)}</span>
         </div>
-        <ColorField value={r.plateColor} onChange={(p) => setRider({ plateColor: p })} label="Plate background colour" />
+        <ColorField value={r.plateColor} onChange={(p) => setRider({ plateColor: p })} label="Side plates background colour" />
+      </div>
+      <div className="group">
+        <div className="group-label">
+          Front plate background <span>{swatchName(frontPlateColor(config))}</span>
+        </div>
+        <ColorField value={frontPlateColor(config)} onChange={(p) => setRider({ frontPlateColor: p })} label="Front plate background colour" />
       </div>
       <div className="group">
         <div className="group-label">

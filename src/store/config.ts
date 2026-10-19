@@ -14,7 +14,28 @@ export interface Logo {
   slot: LogoSlot
 }
 
-export type ShapeId = 'stripe' | 'twin' | 'chevron' | 'slash' | 'star' | 'circle' | 'triangle' | 'flame' | 'bolt' | 'checker' | 'cactus'
+export type ShapeId =
+  | 'stripe'
+  | 'twin'
+  | 'chevron'
+  | 'slash'
+  | 'star'
+  | 'circle'
+  | 'triangle'
+  | 'flame'
+  | 'bolt'
+  | 'checker'
+  | 'cactus'
+  | 'swoosh'
+  | 'claw'
+  | 'speed'
+  | 'arrow'
+  | 'diamond'
+  | 'hexagon'
+  | 'wave'
+  | 'dots'
+  | 'splat'
+  | 'shield'
 // A main panel (both sides mirror), the whole kit, or one template piece
 // ("p" + its id) such as a fork guard or the front plate.
 export type LayerPanel = 'shroud' | 'sidePlate' | 'rearFender' | 'frontFender' | 'kit' | `p${number}`
@@ -51,12 +72,14 @@ export interface KitConfig {
   designId: DesignId
   colors: Palette
   plastics: PlasticsId
-  rider: { name: string; number: string; font: NumberFont; numberColor: string; plateColor: string; nameColor: string }
+  // plateColor: the side plates; frontPlateColor: the front plate (follows
+  // the side plates until it is set on its own).
+  rider: { name: string; number: string; font: NumberFont; numberColor: string; plateColor: string; frontPlateColor?: string; nameColor: string }
   makeLettering: boolean
   logos: Logo[]
   layers: Layer[]
-  // Base colour per part (main panels or single pieces "p<id>"); the side
-  // and front plates use rider.plateColor, the whole kit colors.base.
+  // Base colour per part (main panels or single pieces "p<id>"); the plates
+  // use the rider's plate colours, the whole kit colors.base.
   partColors: Partial<Record<LayerPanel, Paint>>
   kit: KitId
   finish: FinishId
@@ -90,7 +113,7 @@ export const plasticsHex = (c: KitConfig) =>
   c.plastics === 'white' ? '#f4f4f2' : c.plastics === 'black' ? '#141414' : makeInfo(bikeById(c.bikeId).make).oem
 
 export const usesNeon = (c: KitConfig) =>
-  [...Object.values(c.colors), ...Object.values(c.partColors ?? {}), c.rider.numberColor, c.rider.plateColor, c.rider.nameColor, ...c.layers.map((l) => l.fill)].flatMap(paintColors).some((h) => NEON_HEXES.has(h))
+  [...Object.values(c.colors), ...Object.values(c.partColors ?? {}), c.rider.numberColor, c.rider.plateColor, c.rider.frontPlateColor ?? '', c.rider.nameColor, ...c.layers.map((l) => l.fill)].flatMap(paintColors).some((h) => NEON_HEXES.has(h))
 
 export const priceInput = (c: KitConfig): PriceInput => ({
   kit: c.kit,
@@ -168,7 +191,7 @@ export const useConfig = create<Store>((set) => ({
             logos: [],
             layers: [],
             partColors: {},
-            rider: { ...c.rider, name: '', number: '', plateColor: d.palette.base, numberColor: '#101010', nameColor: '#101010' },
+            rider: { ...c.rider, name: '', number: '', plateColor: d.palette.base, frontPlateColor: undefined, numberColor: '#101010', nameColor: '#101010' },
           },
         }
       // Leaving a blank start brings the usual lettering back.
@@ -182,7 +205,7 @@ export const useConfig = create<Store>((set) => ({
           partColors: {},
           makeLettering: fromBlank ? true : c.makeLettering,
           // Each design brings plates and lettering that suit it.
-          rider: { ...c.rider, ...(fromBlank ? { name: c.rider.name || base.name, number: c.rider.number || base.number } : {}), ...d.rider },
+          rider: { ...c.rider, frontPlateColor: undefined, ...(fromBlank ? { name: c.rider.name || base.name, number: c.rider.number || base.number } : {}), ...d.rider },
         },
       }
     }),

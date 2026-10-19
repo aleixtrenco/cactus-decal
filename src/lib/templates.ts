@@ -14,6 +14,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 import { BIKES, bikeById, makeInfo, type BikeType } from '../data/bikes'
 import { frontFender, rearFender, shroud, sidePlate, type Seg } from './shapes'
+import type { LayerPanel } from '../store/config'
 
 export type Role = 'shroud' | 'sidePlate' | 'rearFender' | 'frontFender' | 'frontPlate' | 'other' | 'ignore'
 export type PieceSide = 'right' | 'left' | 'center'
@@ -348,6 +349,21 @@ export function pieceToWorld(p: TemplatePiece, pieces: TemplatePiece[]): M6 {
     if (host) return pieceToWorld(host, pieces)
   }
   if (p.place) return p.place
+  // A left main panel mirrors the right side's pieces of that role as a
+  // group, so a side plate cut in two on one side (around the airbox) still
+  // lines up with the one-piece plate on the other.
+  if (p.side === 'left' && MAIN.includes(p.role)) {
+    const top = (side: TemplatePiece['side']) => pieces.filter((q) => q.side === side && q.role === p.role && q.parent === undefined)
+    const rights = top('right').filter((q) => q.place)
+    if (rights.length) {
+      const L = unionBox(top('left'))
+      const R = unionBox(rights)
+      const host = rights.reduce((a, b) => (b.area > a.area ? b : a))
+      const kx = R.w / L.w
+      const ky = R.h / L.h
+      return mul6(host.place!, [-kx, 0, 0, ky, R.x + R.w + L.x * kx, R.y - L.y * ky])
+    }
+  }
   // Left pieces follow their right-side twin once that has been placed.
   const twin = placedTwin(p, pieces)
   if (twin?.place) {
@@ -366,13 +382,66 @@ export function pieceToWorld(p: TemplatePiece, pieces: TemplatePiece[]): M6 {
   return [sx, 0, 0, -k, tcx - sx * pcx, tcy + k * pcy]
 }
 
+const unionBox = (ps: TemplatePiece[]) => {
+  const x = Math.min(...ps.map((q) => q.bbox.x))
+  const y = Math.min(...ps.map((q) => q.bbox.y))
+  return { x, y, w: Math.max(...ps.map((q) => q.bbox.x + q.bbox.w)) - x, h: Math.max(...ps.map((q) => q.bbox.y + q.bbox.h)) - y }
+}
+
+// Single pieces that are the same part on both sides of the bike (mirror
+// images on the template) are designed as one: colours and layers on one go
+// on the other too. Pairs are matched by size, closest first.
+const twinCache = new WeakMap<TemplatePiece[], Map<number, number>>()
+function twinMap(pieces: TemplatePiece[]) {
+  let m = twinCache.get(pieces)
+  if (m) return m
+  m = new Map()
+  const single = (side: TemplatePiece['side']) => pieces.filter((q) => q.side === side && q.parent === undefined && q.role === 'other')
+  const lefts = single('left')
+  const pairs = single('right')
+    .flatMap((r) => lefts.filter((l) => sameSize(r, l, 0.15)).map((l) => ({ r, l, d: rel(r.area, l.area) + rel(r.bbox.w, l.bbox.w) + rel(r.bbox.h, l.bbox.h) })))
+    .sort((a, b) => a.d - b.d)
+  for (const { r, l } of pairs) {
+    if (m.has(r.id) || m.has(l.id)) continue
+    m.set(r.id, l.id)
+    m.set(l.id, r.id)
+  }
+  twinCache.set(pieces, m)
+  return m
+}
+
+// The same piece on the other side of the bike, if the template has one.
+export function twinOf(p: TemplatePiece, pieces: TemplatePiece[]) {
+  const id = twinMap(pieces).get(p.id)
+  return id === undefined ? undefined : pieces.find((q) => q.id === id)
+}
+
+// The panel a piece is designed as: its main panel, or the piece itself
+// (named by the right-hand piece of a mirrored pair).
+export function panelKey(p: TemplatePiece, pieces: TemplatePiece[]): LayerPanel {
+  const host = p.parent !== undefined ? (pieces.find((q) => q.id === p.parent) ?? p) : p
+  if (MAIN.includes(host.role)) return host.role as LayerPanel
+  const twin = twinOf(host, pieces)
+  return `p${twin && twin.side === 'right' ? twin.id : host.id}`
+}
+
+// The piece that names a panel `p<id>` and, for mirrored pairs, its twin.
+export function panelPieces(panel: LayerPanel, pieces: TemplatePiece[]) {
+  const id = panel.startsWith('p') ? Number(panel.slice(1)) : NaN
+  const main = pieces.find((q) => q.id === id)
+  if (!main) return []
+  const twin = twinOf(main, pieces)
+  return twin ? [main, twin] : [main]
+}
+
 // The placed right-side piece a left piece mirrors: same role, or for trim
 // pieces the same size.
 export function placedTwin(p: TemplatePiece, pieces: TemplatePiece[]) {
   if (p.side !== 'left') return undefined
   const cands = pieces.filter((q) => q.side === 'right' && q.place && q.parent === undefined)
   if (p.role !== 'other') return cands.find((q) => q.role === p.role)
-  return cands.filter((q) => q.role === 'other' && sameSize(q, p, 0.15)).sort((a, b) => Math.abs(a.area - p.area) - Math.abs(b.area - p.area))[0]
+  const twin = twinOf(p, pieces)
+  return twin && cands.includes(twin) ? twin : undefined
 }
 
 const MAIN: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']

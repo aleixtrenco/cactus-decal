@@ -3,7 +3,7 @@
 
 import { pieceIdOf, type LayerPanel } from '../store/config'
 import { loadImage } from './graphics'
-import type { BikeTemplate, Role, TemplatePiece } from './templates'
+import { panelKey, twinOf, type BikeTemplate, type Role, type TemplatePiece } from './templates'
 
 export const PANELS: [LayerPanel, string][] = [
   ['shroud', 'Shroud'],
@@ -20,9 +20,12 @@ const SIDE = { right: 'right', left: 'left', center: 'centre' }
 // designed. Numbered left to right as they sit on the template.
 export function piecePanels(t: BikeTemplate | undefined, plates: boolean): { panel: LayerPanel; label: string; piece: TemplatePiece }[] {
   if (!t) return []
+  // A pair of matching pieces (one per side) is one panel, named by its
+  // right-hand piece.
   const own = t.pieces
     .filter((p) => p.parent === undefined && p.role !== 'ignore' && !MAIN.includes(p.role))
     .filter((p) => !plates || p.role === 'frontPlate')
+    .filter((p) => panelKey(p, t.pieces) === `p${p.id}`)
     .sort((a, b) => a.bbox.x - b.bbox.x || a.bbox.y - b.bbox.y)
   // Pieces laid on the front fender (its centre strip) are named for it.
   const fender = t.pieces.find((p) => p.role === 'frontFender' && p.side === 'center')
@@ -41,7 +44,7 @@ export function piecePanels(t: BikeTemplate | undefined, plates: boolean): { pan
   return own.map((p) => ({
     panel: `p${p.id}` as LayerPanel,
     piece: p,
-    label: p.role === 'frontPlate' ? `Front plate${nth(frontPlates, p)}` : onFender(p) ? `Fender centre${nth(fenders, p)}` : `Trim ${++n} · ${SIDE[p.side]}`,
+    label: p.role === 'frontPlate' ? `Front plate${nth(frontPlates, p)}` : onFender(p) ? `Fender centre${nth(fenders, p)}` : `Trim ${++n} · ${twinOf(p, t.pieces) ? 'both sides' : SIDE[p.side]}`,
   }))
 }
 

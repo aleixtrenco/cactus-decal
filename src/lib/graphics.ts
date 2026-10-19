@@ -219,6 +219,134 @@ const PATTERNS: Record<string, Painter> = {
       ctx.stroke()
     }
   },
+  // Torn claw marks ripping through a bold band, nose to tail.
+  claw(ctx, c) {
+    ctx.fillStyle = c.base
+    ctx.fillRect(x0, y0, WW, WH)
+    // Sweeping band low across the kit, rising to the front.
+    shape(ctx, c.primary, [
+      [x0, 0.98],
+      [-0.4, 0.92],
+      [0.2, 0.86],
+      [0.7, 0.92],
+      [x1, 0.74],
+      [x1, 0.6],
+      [0.6, 0.72],
+      [0.1, 0.7],
+      [-0.5, 0.8],
+      [x0, 0.86],
+    ])
+    band(ctx, c.secondary, [x0, 1.02], [-0.35, 0.96], 0.018)
+    band(ctx, c.secondary, [-0.35, 0.96], [0.72, 0.97], 0.018)
+    // Four tapered tears, slanting back like a swipe.
+    const tear = (x: number, y: number, len: number, w: number) => {
+      const pts: [number, number][] = []
+      const n = 14
+      for (let i = 0; i <= n; i++) {
+        const t = i / n
+        const jag = (i % 2 ? 0.35 : 0) * w
+        pts.push([x - t * len * 0.55 + jag, y - t * len - jag * 0.3])
+      }
+      for (let i = n; i >= 0; i--) {
+        const t = i / n
+        const half = w * Math.sin(Math.PI * Math.min(1, 0.1 + t))
+        pts.push([x - t * len * 0.55 + half, y - t * len + half * 0.2])
+      }
+      shape(ctx, c.accent, pts)
+    }
+    for (const [x, y] of [
+      [0.5, 1.16],
+      [0.36, 1.18],
+      [0.22, 1.18],
+      [0.08, 1.15],
+    ] as [number, number][])
+      tear(x, y, 0.42, 0.05)
+    for (const [x, y] of [
+      [-0.6, 1.17],
+      [-0.72, 1.17],
+      [-0.84, 1.15],
+    ] as [number, number][])
+      tear(x, y, 0.2, 0.03)
+  },
+  // A chequered flag band across the kit with racing-red borders.
+  checkmate(ctx, c) {
+    ctx.fillStyle = c.base
+    ctx.fillRect(x0, y0, WW, WH)
+    const flag = (pts: [number, number][], g: number) => {
+      ctx.save()
+      shape(ctx, c.base, pts)
+      ctx.clip()
+      for (let i = -60; i < 60; i++)
+        for (let j = -10; j < 30; j++)
+          if ((i + j) % 2 === 0) {
+            ctx.fillStyle = c.primary
+            ctx.fillRect(i * g, y0 + j * g, g, g)
+          }
+      ctx.restore()
+    }
+    const main: [number, number][] = [
+      [-0.1, 0.72],
+      [0.66, 1.18],
+      [0.92, 1.18],
+      [0.16, 0.72],
+    ]
+    flag(main, 0.045)
+    band(ctx, c.secondary, [-0.13, 0.72], [0.63, 1.18], 0.03)
+    band(ctx, c.secondary, [0.19, 0.72], [0.95, 1.18], 0.03)
+    // Long stripes along the side and rear, a smaller flag on the tail.
+    band(ctx, c.secondary, [x0, 1.08], [-0.15, 0.95], 0.04)
+    band(ctx, c.accent, [x0, 1.03], [-0.17, 0.91], 0.012)
+    flag(
+      [
+        [-1.0, 1.12],
+        [-0.62, 1.1],
+        [-0.62, 1.2],
+        [-1.0, 1.22],
+      ],
+      0.035,
+    )
+    // Front fender: red tip with a fine stripe.
+    shape(ctx, c.secondary, [
+      [0.9, 0.7],
+      [1.25, 0.66],
+      [1.25, 0.56],
+      [1.0, 0.6],
+    ])
+  },
+  // Layered waves rolling from tail to nose, with spray.
+  tidal(ctx, c) {
+    ctx.fillStyle = c.base
+    ctx.fillRect(x0, y0, WW, WH)
+    const wave = (fill: Fill, top: (x: number) => number) => {
+      const pts: [number, number][] = [[x0, y0]]
+      for (let x = x0; x <= x1 + 0.001; x += 0.01) pts.push([x, top(x)])
+      pts.push([x1, y0])
+      shape(ctx, fill, pts)
+    }
+    wave(c.secondary, (x) => 0.96 + 0.07 * Math.sin(x * 3.2 + 0.6) + 0.02 * Math.sin(x * 9))
+    wave(c.primary, (x) => 0.86 + 0.06 * Math.sin(x * 3.2 - 0.2) + 0.015 * Math.sin(x * 11 + 1))
+    wave(c.secondary, (x) => 0.74 + 0.05 * Math.sin(x * 3.6 - 1.1))
+    // A thin accent line riding the top wave.
+    ctx.strokeStyle = c.accent
+    ctx.lineWidth = 0.012
+    ctx.beginPath()
+    for (let x = x0; x <= x1 + 0.001; x += 0.01) {
+      const y = 1.0 + 0.07 * Math.sin(x * 3.2 + 0.6) + 0.02 * Math.sin(x * 9)
+      if (x === x0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.stroke()
+    // Spray above the crest.
+    const r = rng(7)
+    for (let i = 0; i < 90; i++) {
+      const x = x0 + r() * WW
+      const y = 1.04 + 0.07 * Math.sin(x * 3.2 + 0.6) + r() * 0.12
+      ctx.beginPath()
+      ctx.arc(x, y, 0.004 + r() * 0.01, 0, Math.PI * 2)
+      ctx.fillStyle = c.primary
+      ctx.fill()
+    }
+  },
   // Inspired by a blue kit with red and white heritage speed blocks.
   speedblock(ctx, c) {
     ctx.fillStyle = c.base
@@ -652,16 +780,14 @@ type Rect = { x0: number; y0: number; x1: number; y1: number }
 function insideBox(panels: Seg[][], aspect: number, seen?: SeenArea): Rect {
   const pts = (seg: Seg[]) => seg.map((p) => (p.length === 5 ? [p[3], p[4]] : [p[1], p[2]]) as [number, number])
   const b = anchorBox(panels)
-  const seg = panels.find((sg) => {
-    const q = pts(sg)
-    return Math.min(...q.map((v) => v[0])) === b.x0 && Math.max(...q.map((v) => v[0])) === b.x1
-  })
-  if (!seg) return b
-  const poly = pts(seg)
-  const key = `${aspect}|${poly.length}|${poly[0]}|${poly[poly.length >> 1]}|${b.x0},${b.y0},${b.x1},${b.y1}|${seen?.id ?? ''}`
+  // A panel cut in more than one piece (e.g. a side plate split around the
+  // airbox) counts as one area: inside any of its pieces.
+  const polys = panels.map(pts).filter((q) => q.length > 2)
+  if (!polys.length) return b
+  const key = `${aspect}|${polys.map((q) => `${q.length}|${q[0]}|${q[q.length >> 1]}`).join('/')}|${b.x0},${b.y0},${b.x1},${b.y1}|${seen?.id ?? ''}`
   const hit = fitCache.get(key)
   if (hit) return hit
-  const inside = (x: number, y: number) => {
+  const inPoly = (poly: [number, number][], x: number, y: number) => {
     let wn = 0
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
       const [xi, yi] = poly[j]
@@ -673,6 +799,7 @@ function insideBox(panels: Seg[][], aspect: number, seen?: SeenArea): Rect {
     }
     return wn !== 0
   }
+  const inside = (x: number, y: number) => polys.some((q) => inPoly(q, x, y))
   const fits = (cx: number, cy: number, h: number) => {
     const w = h * aspect
     if (seen)
@@ -831,6 +958,8 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
 // `on` describes the plate on a 3D model: the square canvas is stretched over
 // a `w`×`h` area there, so text is pre-squeezed to read undistorted, and
 // `number` is the band (fractions from the top) clear of e.g. a headlight.
+export const frontPlateColor = (cfg: KitConfig) => cfg.rider.frontPlateColor ?? cfg.rider.plateColor
+
 export function paintFrontPlate(canvas: HTMLCanvasElement, cfg: KitConfig, on?: { w: number; h: number; number?: [number, number] }) {
   const S = canvas.width
   const ctx = canvas.getContext('2d')!
@@ -838,7 +967,7 @@ export function paintFrontPlate(canvas: HTMLCanvasElement, cfg: KitConfig, on?: 
   const all = { x: 0, y: 0, w: S, h: S }
   const [top, bottom] = on?.number ?? [0.34, 0.72]
   const sx = on ? on.h / on.w : 1
-  ctx.fillStyle = paintStyle(ctx, cfg.rider.plateColor, all)
+  ctx.fillStyle = paintStyle(ctx, frontPlateColor(cfg), all)
   ctx.fillRect(0, 0, S, S)
   // Only the middle band (14%–86%) lands on the plate, see Bike.tsx.
   const band = Math.min(0.25, top - 0.09)
@@ -996,15 +1125,18 @@ export function pieceFrame(l: Layer, bbox: { x: number; y: number; w: number; h:
 }
 
 // Draws a piece-panel layer. `base` maps template units to the context.
-export function drawPieceLayer(ctx: CanvasRenderingContext2D, l: Layer, bbox: { x: number; y: number; w: number; h: number }, base: M6) {
-  const f = pieceFrame(l, bbox)
+// `mirror` draws it on the matching piece from the other side of the bike:
+// the layout and shapes mirror, text and photos stay readable.
+export function drawPieceLayer(ctx: CanvasRenderingContext2D, l: Layer, bbox: { x: number; y: number; w: number; h: number }, base: M6, mirror = false) {
+  const f = pieceFrame(mirror ? { ...l, x: 1 - l.x } : l, bbox)
+  const k = mirror ? -1 : 1
   ctx.save()
   ctx.globalAlpha = l.opacity
   ctx.setTransform(base[0], base[1], base[2], base[3], base[4], base[5])
   ctx.translate(f.cx, f.cy)
-  ctx.rotate((-l.rotation * Math.PI) / 180)
+  ctx.rotate((-k * l.rotation * Math.PI) / 180)
   if (l.kind === 'shape' && l.shape) {
-    ctx.scale(f.h, -f.h)
+    ctx.scale(k * f.h, -f.h)
     shapeBody(ctx, l)
   } else flatBody(ctx, l, f.h)
   ctx.restore()

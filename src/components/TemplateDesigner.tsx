@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { drawPieceLayer, ensureAssets, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFrame, pieceVariant, sheetWidth, WORLD, type Side } from '../lib/graphics'
-import { apply, builtInTemplate, invert, mul6, panelsFor, pieceToWorld, useTemplates, type M6, type Role, type TemplatePiece } from '../lib/templates'
+import { apply, builtInTemplate, invert, mul6, panelKey, panelPieces, panelsFor, pieceToWorld, useTemplates, type M6, type Role, type TemplatePiece } from '../lib/templates'
 import { firstColor, paintCss } from '../lib/paint'
 import { pieceIdOf, platesOnly, useConfig, type Layer, type LayerPanel } from '../store/config'
 import { panelName } from '../lib/layers'
@@ -22,8 +22,9 @@ const MAIN: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
 const COLOURS_STEP = 2
 const GRAPHICS_STEP = 3
 
-// The panel a template piece belongs to: a main panel, or the piece itself.
-const panelOf = (host: TemplatePiece): LayerPanel => (MAIN.includes(host.role) ? (host.role as LayerPanel) : `p${host.id}`)
+// A piece-panel layer as it sits on `piece`: mirrored when that piece is the
+// other side's twin of the piece naming the panel.
+const onPiece = (l: Layer, piece: TemplatePiece): Layer => (l.panel === `p${piece.id}` ? l : { ...l, x: 1 - l.x, rotation: -l.rotation })
 
 // Sheet pixel → world, for each side (inverse of the painter transform).
 function sheetToWorld(side: Side, w: number): M6 {
@@ -82,9 +83,13 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     dx: number
     dy: number
     own: boolean
+    mirror: boolean
   } | null>(null)
   // Resizing or rotating the selected layer with its handles (CSS pixels).
   const handle = useRef<{ mode: 'size' | 'turn'; cx: number; cy: number; d0: number; a0: number; size: number; rotation: number; sign: number } | null>(null)
+  // The panel a template piece belongs to: a main panel, or the piece itself
+  // (shared with its twin on the other side).
+  const panelOf = (host: TemplatePiece) => panelKey(host, template.pieces)
   const plates = platesOnly(config)
   // Plates-only orders can only be designed on the plates (or whole kit).
   const platePanel = (p: LayerPanel) => p === 'sidePlate' || p === 'kit' || template.pieces.some((x) => `p${x.id}` === p && x.role === 'frontPlate')
@@ -215,20 +220,21 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
           const side: Side = p.side === 'left' ? 'left' : 'right'
           const lettered = LETTERED.includes(host.role)
           // A single piece with its own base colour gets its own version.
-          const own = lettered ? undefined : config.partColors?.[`p${host.id}`]
+          const own = lettered ? undefined : config.partColors?.[panelKey(host, template.pieces)]
           const sheet = own ? variantFor(own)[side] : side === 'right' ? (lettered ? sheets.right : sheets.rightPlain) : lettered ? sheets.left : sheets.leftPlain
           setM(mul6(mul6(V, invert(toWorld)), sheetToWorld(side, SW)))
           ctx.drawImage(sheet, 0, 0)
         }
         // Anything designed on this piece itself.
-        for (const l of config.layers) if (l.panel === `p${host.id}` && !l.cover) drawPieceLayer(ctx, l, host.bbox, V)
+        const key = panelKey(host, template.pieces)
+        for (const l of config.layers) if (l.panel === key && !l.cover) drawPieceLayer(ctx, l, host.bbox, V, key !== `p${host.id}`)
         ctx.restore()
       }
       // Cut lines on top; the panel being designed stands out, the rest dims.
       ctx.save()
       setM(V)
       ctx.lineJoin = 'round'
-      const focus = (x: (typeof pieces)[number]) => !interactive || panel === 'kit' || panelOf(x.host) === panel
+      const focus = (x: (typeof pieces)[number]) => !interactive || panel === 'kit' || panelKey(x.host, template.pieces) === panel
       for (const x of pieces) {
         if (!x.printed || focus(x)) continue
         path(x.p)
@@ -255,7 +261,7 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       alive = false
       cancelAnimationFrame(frame)
     }
-  }, [config, pieces, fit, size, panel, interactive])
+  }, [config, template, pieces, fit, size, panel, interactive])
 
   // --- Interaction -------------------------------------------------------
 
@@ -269,7 +275,6 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
   // The printed piece under a template point (smallest first).
   const pieceAt = (t: Pt) => pieces.filter((x) => x.printed && inside(t, x.p.outline)).sort((a, b) => a.p.area - b.p.area)[0]
   type Hit = NonNullable<ReturnType<typeof pieceAt>>
-  const pieceById = (id: number) => template.pieces.find((p) => p.id === id)
 
   // Inside a box turned by `deg` (counter-clockwise, y up), with some slack.
   const inBox = (dx: number, dy: number, w: number, h: number, deg: number, tol: number) => {
@@ -288,11 +293,11 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     [...movable].reverse().find((l) => {
       const pid = pieceIdOf(l.panel)
       if (pid !== null) {
-        const piece = pieceById(pid)
-        if (!piece || (hit.host.id !== pid && hit.p.id !== pid)) return false
-        const b = pieceBox(l, piece)
+        if (panelOf(hit.host) !== l.panel) return false
+        const m = onPiece(l, hit.host)
+        const b = pieceBox(m, hit.host)
         // Template y points down: flip it to measure the turn.
-        return inBox(t[0] - b.cx, b.cy - t[1], b.w, b.h, l.rotation, 2 / fit!.s)
+        return inBox(t[0] - b.cx, b.cy - t[1], b.w, b.h, m.rotation, 2 / fit!.s)
       }
       // Main-panel layers only appear on the main panels.
       if (!MAIN.includes(hit.host.role)) return false
@@ -316,15 +321,15 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       return select(null)
     }
     select(l.id)
-    const pid = pieceIdOf(l.panel)
-    const piece = pid !== null ? pieceById(pid) : undefined
-    if (piece) {
-      const b = pieceBox(l, piece)
-      drag.current = { id: l.id, piece, dx: t[0] - b.cx, dy: t[1] - b.cy, own: true }
+    if (pieceIdOf(l.panel) !== null) {
+      // Dragged on whichever piece of the pair was touched.
+      const piece = hitPiece.host
+      const b = pieceBox(onPiece(l, piece), piece)
+      drag.current = { id: l.id, piece, dx: t[0] - b.cx, dy: t[1] - b.cy, own: true, mirror: l.panel !== `p${piece.id}` }
     } else {
       const w = apply(hitPiece.toWorld, t)
       const b = layerBox(l, panels)
-      drag.current = { id: l.id, piece: hitPiece.p, dx: w[0] - b.cx, dy: w[1] - b.cy, own: false }
+      drag.current = { id: l.id, piece: hitPiece.p, dx: w[0] - b.cx, dy: w[1] - b.cy, own: false, mirror: false }
     }
     ;(e.target as Element).setPointerCapture(e.pointerId)
   }
@@ -342,7 +347,8 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     if (d.own) {
       // A layer on its own piece moves in the piece's frame.
       const { x, y, w, h } = d.piece.bbox
-      updateLayer(d.id, { x: +((t[0] - d.dx - x) / w).toFixed(3), y: +(1 - (t[1] - d.dy - y) / h).toFixed(3) })
+      const fx = (t[0] - d.dx - x) / w
+      updateLayer(d.id, { x: +(d.mirror ? 1 - fx : fx).toFixed(3), y: +(1 - (t[1] - d.dy - y) / h).toFixed(3) })
       return
     }
     // Follow whichever piece the pointer is over; off the pieces, keep the
@@ -365,14 +371,17 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
   const selPolys = useMemo(() => {
     if (!sel || !fit) return []
     const toCssPt = ([x, y]: Pt): Pt => [x * fit.s + fit.ox, y * fit.s + fit.oy]
-    const pid = pieceIdOf(sel.panel)
-    if (pid !== null) {
-      const piece = pieceById(pid)
-      if (!piece || !pieces.some((x) => x.p.id === pid)) return []
-      const b = pieceBox(sel, piece)
-      // Template y points down: a negative height and turn keep the box upright.
-      const pts = corners({ ...b, h: -b.h }, -sel.rotation).map(toCssPt)
-      return [{ pts, points: pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '), sign: -1 }]
+    if (pieceIdOf(sel.panel) !== null) {
+      // On each shown piece of the panel (both sides for a mirrored pair).
+      return panelPieces(sel.panel, template.pieces)
+        .filter((piece) => pieces.some((x) => x.p.id === piece.id))
+        .map((piece) => {
+          const m = onPiece(sel, piece)
+          const b = pieceBox(m, piece)
+          // Template y points down: a negative height and turn keep the box upright.
+          const pts = corners({ ...b, h: -b.h }, -m.rotation).map(toCssPt)
+          return { pts, points: pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '), sign: m === sel ? -1 : 1 }
+        })
     }
     const b = layerBox(sel, panels)
     const world = corners(b, sel.rotation)

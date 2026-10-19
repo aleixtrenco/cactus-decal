@@ -16,7 +16,7 @@ import { designById } from '../data/designs'
 import { FINISHES, MATERIALS } from '../data/pricing'
 import { platesOnly, type KitConfig } from '../store/config'
 import { drawPieceLayer, paintFrontPlate, paintSheet, pieceVariant, WORLD, type Side } from './graphics'
-import { builtInTemplate, invert, mount, pieceElements, pieceToWorld, panelsFor, toRoot, type BikeTemplate, type M6, type Role, type TemplatePiece } from './templates'
+import { builtInTemplate, invert, mount, panelKey, pieceElements, pieceToWorld, panelsFor, toRoot, type BikeTemplate, type M6, type Role, type TemplatePiece } from './templates'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const n = (v: number) => (Math.abs(v) < 1e-9 ? '0' : +v.toFixed(3) + '')
@@ -337,8 +337,9 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
   // Anything the customer designed on a piece itself, in template units.
   const own = (p: TemplatePiece) => {
     const host = p.parent !== undefined ? (t.pieces.find((q) => q.id === p.parent) ?? p) : p
-    const ls = cfg.layers.filter((l) => l.panel === `p${host.id}` && !l.cover)
-    return ls.length ? record(f, vw, vh, (c) => ls.forEach((l) => drawPieceLayer(c.getContext('2d')!, l, host.bbox, [1, 0, 0, 1, 0, 0]))) : ''
+    const key = panelKey(host, t.pieces)
+    const ls = cfg.layers.filter((l) => l.panel === key && !l.cover)
+    return ls.length ? record(f, vw, vh, (c) => ls.forEach((l) => drawPieceLayer(c.getContext('2d')!, l, host.bbox, [1, 0, 0, 1, 0, 0], key !== `p${host.id}`))) : ''
   }
   for (const p of pieces) {
     const mask = `<mask id="m${p.id}" maskUnits="userSpaceOnUse" ${big}>${paint(shapeOf(p), `fill="#fff" stroke="#fff" stroke-width="${n(bleed * 2)}" stroke-linejoin="round"`)}</mask>`
@@ -355,7 +356,7 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
     const m = mul(invert(pieceToWorld(p, t.pieces)), sheetToWorld(side))
     const host = p.parent !== undefined ? (t.pieces.find((q) => q.id === p.parent) ?? p) : p
     const lettered = LETTERED.includes(host.role)
-    const base = lettered ? undefined : cfg.partColors?.[`p${host.id}`]
+    const base = lettered ? undefined : cfg.partColors?.[panelKey(host, t.pieces)]
     const ref = base ? `#art-${side}-v${variant(base)}` : `#art-${side}${lettered ? '' : '-plain'}`
     printed.push(`<g id="piece-${p.id}-${p.role}" mask="url(#m${p.id})"><use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/>${own(p)}</g>`)
   }

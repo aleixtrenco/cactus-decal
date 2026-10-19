@@ -2908,3 +2908,115 @@ img.render {
   z-index: 2;
   overflow-x: clip;
 }
+
+/* Bike selection */
+.bike-current {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  margin-bottom: 22px;
+  border-radius: var(--r-md);
+  border: 1px solid rgba(140, 214, 58, 0.45);
+  background: rgba(140, 214, 58, 0.06);
+}
+.bike-current b {
+  display: block;
+  font-size: 17px;
+  font-weight: 700;
+}
+.bike-current small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.bike-current small:first-child {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 10px;
+  color: var(--cactus);
+}
+.bike-thumb {
+  flex: none;
+  width: 76px;
+  height: 44px;
+}
+.bike-current .bike-thumb {
+  width: 96px;
+  height: 56px;
+}
+.bike-thumb path {
+  fill: rgba(140, 214, 58, 0.16);
+  stroke: var(--cactus);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
+.chip .count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.chip-soon {
+  opacity: 0.6;
+}
+.bike-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  margin-bottom: 14px;
+  min-height: 44px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  background: var(--ink-3);
+  color: var(--muted);
+}
+.bike-search:focus-within {
+  border-color: var(--cactus);
+}
+.bike-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  color: #f2f0e8;
+}
+.bike-group + .bike-group {
+  margin-top: 16px;
+}
+.bike-type {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.bike-option {
+  justify-content: flex-start;
+}
+.bike-option > span {
+  flex: 1;
+  min-width: 0;
+}
+.bike-option .years {
+  font-style: normal;
+  display: inline-block;
+  padding: 1px 7px;
+  margin-right: 6px;
+  border-radius: 999px;
+  background: rgba(233, 200, 143, 0.14);
+  color: var(--sand);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.bike-soon {
+  margin-top: 14px;
+}
+.bike-soon .options {
+  margin-top: 10px;
+}
