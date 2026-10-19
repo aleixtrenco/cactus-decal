@@ -518,7 +518,7 @@ function ColourStep() {
   ]
   return (
     <>
-      <StepHead title="Colours" lead="Every part can have its own base colour. Pick a part (or tap it on the template), then any colour, hex code or gradient." />
+      <StepHead title="Colours" lead="Pick a part (or tap it on the template), then any colour, hex code or gradient. The colour fills that whole part, on both sides, and nothing else." />
       <div className="group">
         <div className="group-label">1 · Choose a part</div>
         <div className="panel-picks" role="group" aria-label="Part">
@@ -550,7 +550,7 @@ function ColourStep() {
       </div>
       <div className="group">
         <div className="group-label">
-          2 · Base colour of the {name.toLowerCase()} <span>{plateOf(part) ? 'Front and side plates' : custom ? swatchName(value) : 'Same as the kit'}</span>
+          2 · Colour of the {name.toLowerCase()} <span>{plateOf(part) ? 'Plate background' : custom ? swatchName(value) : 'Showing the design'}</span>
         </div>
         <ColorField value={value} onChange={setPart} label={`${name} colour`} />
         <div className="chips" style={{ marginTop: 12 }}>
@@ -561,7 +561,7 @@ function ColourStep() {
           )}
           {custom && (
             <button className="chip chip-sm" onClick={backToKit}>
-              Back to the kit colour
+              Show the design again
             </button>
           )}
         </div>

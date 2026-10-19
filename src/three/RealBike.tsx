@@ -15,7 +15,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
-import { drawPieceLayer, ensureAssets, paintDecalSheet, paintFrontPlate, paintSheet, pieceVariant, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
+import { drawPieceLayer, ensureAssets, fillPieceSolid, paintDecalSheet, paintFrontPlate, paintSheet, pieceFill, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
 import { FRONT_WHEEL } from '../lib/shapes'
 import { invert, modelUrl, mul6, onModel, panelKey, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role, type TemplatePiece } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
@@ -286,19 +286,22 @@ const worldToSheet = (side: Side, w: number) => {
 }
 
 // The design with a piece's own base colour, cached per paint.
-function variants(cfg: KitConfig, panels: ReturnType<typeof panelSet>, w: number) {
-  const made = new Map<string, HTMLCanvasElement>()
-  return (side: Side, base: string, lettering = false) => {
-    const key = `${side}|${base}|${lettering}`
-    let c = made.get(key)
+// The lettering and layers alone (transparent elsewhere), to go over pieces
+// filled with a solid colour. Cached per paint.
+function overlays(cfg: KitConfig, panels: ReturnType<typeof panelSet>, w: number, seen?: SeenArea) {
+  const made = new Map<Side, HTMLCanvasElement>()
+  return (side: Side) => {
+    let c = made.get(side)
     if (!c) {
       c = Object.assign(document.createElement('canvas'), { width: w, height: w / 2 })
-      paintSheet(c, pieceVariant(cfg, base), side, panels, { lettering })
-      made.set(key, c)
+      paintSheet(c, cfg, side, panels, { art: false, pieces: true, seen })
+      made.set(side, c)
     }
     return c
   }
 }
+
+const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
 
 // Draws `img` (a full sheet) inside one piece, through `base`.
 function fillPiece(c: HTMLCanvasElement, piece: TemplatePiece, base: M6, img: HTMLCanvasElement, imgToC: M6) {
@@ -316,15 +319,21 @@ function fillPiece(c: HTMLCanvasElement, piece: TemplatePiece, base: M6, img: HT
 
 // Pieces designed on their own that sit on the side of the model: their own
 // base colour, then their layers.
-function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: ReturnType<typeof panelSet>, roles?: Role[]) {
-  const variant = variants(cfg, panels, P.sheets.right.width)
+// Pieces with a solid colour (side plates, and any part the customer
+// coloured) are filled piece by piece, so a colour never spills onto a
+// neighbouring piece; then the layers designed on single pieces.
+function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: ReturnType<typeof panelSet>, roles?: Role[], seen?: SeenArea) {
+  const overlay = overlays(cfg, panels, P.sheets.right.width, seen)
   for (const side of ['right', 'left'] as const) {
     const c = P.sheets[side]
     for (const p of t.pieces) {
       if (p.side !== side || !onModel(p, t.pieces) || (roles && !roles.includes(p.role))) continue
       const base = mul6(worldToSheet(side, c.width), pieceToWorld(p, t.pieces))
-      const own = p.role === 'other' ? cfg.partColors?.[panelKey(p, t.pieces)] : undefined
-      if (own) fillPiece(c, p, base, variant(side, own), [1, 0, 0, 1, 0, 0])
+      const solid = pieceFill(cfg, p, panelKey(p, t.pieces))
+      if (solid) {
+        fillPieceSolid(c.getContext('2d')!, cfg, p, solid, base)
+        if (LETTERED.includes(p.role)) fillPiece(c, p, base, overlay(side), [1, 0, 0, 1, 0, 0])
+      }
       paintPieceLayers(c, cfg, t, p, base)
     }
   }
@@ -370,7 +379,8 @@ function paintFender(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: Retu
   ctx.clearRect(0, 0, c.width, c.height)
   const piece = t.pieces.find((p) => p.role === 'frontFender' && p.side === 'center') ?? t.pieces.find((p) => p.role === 'frontFender')
   if (!piece || platesOnly(cfg)) return
-  paintSheet(P.sheets.art, cfg, 'right', panels)
+  paintSheet(P.sheets.art, cfg, 'right', panels, { pieces: true })
+  const overlay = overlays(cfg, panels, P.sheets.art.width)('right')
   const { x, y, w, h } = piece.bbox
   // Template → fender sheet (long side of the piece along the sheet's height).
   const S: M6 = h >= w ? [c.width / w, 0, 0, c.height / h, (-x * c.width) / w, (-y * c.height) / h] : [0, c.height / w, c.width / h, 0, (-y * c.width) / h, (-x * c.height) / w]
@@ -381,12 +391,14 @@ function paintFender(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: Retu
     return p.side === piece.side && p.role !== 'frontPlate' && p.role !== 'ignore' && cx > x && cx < x + w && cy > y && cy < y + h
   }
   const parts = [piece, ...t.pieces.filter((p) => p !== piece && within(p))]
-  const variant = variants(cfg, panels, P.sheets.art.width)
   for (const p of parts) {
-    // The fender centre and other pieces on it can have their own colour.
-    const own = p.role === 'other' ? cfg.partColors?.[panelKey(p, t.pieces)] : undefined
-    const img = own ? variant('right', own) : P.sheets.art
-    fillPiece(c, p, S, img, mul6(mul6(S, invert(pieceToWorld(p, t.pieces))), [k, 0, 0, -k, WORLD.x0, WORLD.y1]))
+    // The fender and the pieces on it (e.g. its centre) can have their own colour.
+    const toArt = mul6(mul6(S, invert(pieceToWorld(p, t.pieces))), [k, 0, 0, -k, WORLD.x0, WORLD.y1])
+    const solid = pieceFill(cfg, p, panelKey(p, t.pieces))
+    if (solid) {
+      fillPieceSolid(ctx, cfg, p, solid, S)
+      if (LETTERED.includes(p.role)) fillPiece(c, p, S, overlay, toArt)
+    } else fillPiece(c, p, S, P.sheets.art, toArt)
     paintPieceLayers(c, cfg, t, p, S)
   }
 }
@@ -524,7 +536,7 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
       // outlines (mirrored left pieces can't be fitted as precisely).
       const right = sideOutlines(template, 'right', roles)
       paintDecalSheet(P.sheets.left, cfg, 'left', right.length ? right : sideOutlines(template, 'left', roles), panels, seen)
-      paintSidePieces(P, cfg, template, panels, roles)
+      paintSidePieces(P, cfg, template, panels, roles, seen)
       for (const side of ['right', 'left'] as const) clearAreas(P.sheets[side], side, template.model.exclude)
       paintFrontPlate(P.sheets.plate, cfg, template.model.plate)
       paintPlatePieces(P, cfg, template)

@@ -15,7 +15,8 @@ import { bikeById, typeLabel } from '../data/bikes'
 import { designById } from '../data/designs'
 import { FINISHES, MATERIALS } from '../data/pricing'
 import { platesOnly, type KitConfig } from '../store/config'
-import { drawPieceLayer, paintFrontPlate, paintSheet, pieceVariant, WORLD, type Side } from './graphics'
+import { drawPieceLayer, fillPieceSolid, paintFrontPlate, paintSheet, pieceFill, WORLD, type Side } from './graphics'
+import { paintStyle } from './paint'
 import { builtInTemplate, invert, mount, panelKey, pieceElements, pieceToWorld, panelsFor, toRoot, type BikeTemplate, type M6, type Role, type TemplatePiece } from './templates'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -311,7 +312,8 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
   const bleed = vw * 0.002
   // Lettering and customer layers only on the main pieces, not on trim.
   const panels = panelsFor(cfg)
-  const art = (side: Side, lettering: boolean) => record(f, SHEET_W, SHEET_W / 2, (c) => paintSheet(c, cfg, side, panels, { lettering }))
+  // Part colours and plate backgrounds are filled piece by piece below.
+  const art = (side: Side, lettering: boolean, design = true) => record(f, SHEET_W, SHEET_W / 2, (c) => paintSheet(c, cfg, side, panels, { lettering, art: design, pieces: true }))
   const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
   const big = `x="${n(vx - vw)}" y="${n(vy - vh)}" width="${n(vw * 3)}" height="${n(vh * 3)}"`
 
@@ -320,19 +322,10 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
     `<g id="art-left">${art('left', true)}</g>`,
     `<g id="art-right-plain">${art('right', false)}</g>`,
     `<g id="art-left-plain">${art('left', false)}</g>`,
+    // Lettering and layers only, over pieces filled with a solid colour.
+    `<g id="art-right-over">${art('right', true, false)}</g>`,
+    `<g id="art-left-over">${art('left', true, false)}</g>`,
   ]
-  // Single pieces with their own base colour: a version of the design each.
-  const variants = new Map<string, number>()
-  const variant = (base: string) => {
-    let i = variants.get(base)
-    if (i === undefined) {
-      i = variants.size
-      variants.set(base, i)
-      const vc = pieceVariant(cfg, base)
-      for (const side of ['right', 'left'] as const) defs.push(`<g id="art-${side}-v${i}">${record(f, SHEET_W, SHEET_W / 2, (c) => paintSheet(c, vc, side, panels, { lettering: false }))}</g>`)
-    }
-    return i
-  }
   const printed: string[] = []
   // Anything the customer designed on a piece itself, in template units.
   const own = (p: TemplatePiece) => {
@@ -356,9 +349,21 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
     const m = mul(invert(pieceToWorld(p, t.pieces)), sheetToWorld(side))
     const host = p.parent !== undefined ? (t.pieces.find((q) => q.id === p.parent) ?? p) : p
     const lettered = LETTERED.includes(host.role)
-    const base = lettered ? undefined : cfg.partColors?.[panelKey(host, t.pieces)]
-    const ref = base ? `#art-${side}-v${variant(base)}` : `#art-${side}${lettered ? '' : '-plain'}`
-    printed.push(`<g id="piece-${p.id}-${p.role}" mask="url(#m${p.id})"><use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/>${own(p)}</g>`)
+    // A part with its own colour (and every side plate) is filled with it
+    // completely, out into the bleed; only lettering and layers go on top.
+    const solid = pieceFill(cfg, host, panelKey(host, t.pieces))
+    const fill = solid
+      ? record(f, vw, vh, (c) => {
+          const ctx = c.getContext('2d')!
+          const { x, y, w, h } = p.bbox
+          ctx.fillStyle = paintStyle(ctx, solid, p.bbox)
+          ctx.fillRect(x - bleed * 2, y - bleed * 2, w + bleed * 4, h + bleed * 4)
+          fillPieceSolid(ctx, cfg, p, solid, [1, 0, 0, 1, 0, 0])
+        })
+      : ''
+    const ref = solid ? (lettered ? `#art-${side}-over` : '') : `#art-${side}${lettered ? '' : '-plain'}`
+    const use = ref ? `<use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/>` : ''
+    printed.push(`<g id="piece-${p.id}-${p.role}" mask="url(#m${p.id})">${fill}${use}${own(p)}</g>`)
   }
   const cut = pieces.map((p) => paint(shapeOf(p), `fill="none" stroke="#ec008c" stroke-width="${n(vw * 0.0004)}"`)).join('\n')
 

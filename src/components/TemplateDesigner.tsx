@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import { drawPieceLayer, ensureAssets, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFrame, pieceVariant, sheetWidth, WORLD, type Side } from '../lib/graphics'
+import { drawPieceLayer, ensureAssets, fillPieceSolid, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFill, pieceFrame, sheetWidth, WORLD, type Side } from '../lib/graphics'
 import { apply, builtInTemplate, invert, mul6, panelKey, panelPieces, panelsFor, pieceToWorld, useTemplates, type M6, type Role, type TemplatePiece } from '../lib/templates'
 import { firstColor, paintCss } from '../lib/paint'
 import { pieceIdOf, platesOnly, useConfig, type Layer, type LayerPanel } from '../store/config'
@@ -158,6 +158,8 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       left: canvasOf(SW, SW / 2),
       rightPlain: canvasOf(SW, SW / 2),
       leftPlain: canvasOf(SW, SW / 2),
+      rightOver: canvasOf(SW, SW / 2),
+      leftOver: canvasOf(SW, SW / 2),
       plate: canvasOf(512, 512),
     }
     const draw = () => {
@@ -166,27 +168,16 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       canvas.width = Math.round(size.w * dpr)
       canvas.height = Math.round(size.h * dpr)
       const panels = panelsFor(config)
-      paintSheet(sheets.right, config, 'right', panels)
-      paintSheet(sheets.left, config, 'left', panels)
-      paintSheet(sheets.rightPlain, config, 'right', panels, {
-        lettering: false,
-      })
-      paintSheet(sheets.leftPlain, config, 'left', panels, {
-        lettering: false,
-      })
+      // Part colours and plate backgrounds are filled piece by piece below.
+      const opt = { pieces: true }
+      paintSheet(sheets.right, config, 'right', panels, opt)
+      paintSheet(sheets.left, config, 'left', panels, opt)
+      paintSheet(sheets.rightPlain, config, 'right', panels, { ...opt, lettering: false })
+      paintSheet(sheets.leftPlain, config, 'left', panels, { ...opt, lettering: false })
+      // Lettering and layers only, to go over solid-coloured pieces.
+      paintSheet(sheets.rightOver, config, 'right', panels, { ...opt, art: false })
+      paintSheet(sheets.leftOver, config, 'left', panels, { ...opt, art: false })
       paintFrontPlate(sheets.plate, config)
-      const variants = new Map<string, Record<Side, HTMLCanvasElement>>()
-      const variantFor = (base: string) => {
-        let v = variants.get(base)
-        if (!v) {
-          v = { right: canvasOf(SW, SW / 2), left: canvasOf(SW, SW / 2) }
-          const vc = pieceVariant(config, base)
-          paintSheet(v.right, vc, 'right', panels, { lettering: false })
-          paintSheet(v.left, vc, 'left', panels, { lettering: false })
-          variants.set(base, v)
-        }
-        return v
-      }
 
       const ctx = canvas.getContext('2d')!
       ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -219,11 +210,13 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
         } else {
           const side: Side = p.side === 'left' ? 'left' : 'right'
           const lettered = LETTERED.includes(host.role)
-          // A single piece with its own base colour gets its own version.
-          const own = lettered ? undefined : config.partColors?.[panelKey(host, template.pieces)]
-          const sheet = own ? variantFor(own)[side] : side === 'right' ? (lettered ? sheets.right : sheets.rightPlain) : lettered ? sheets.left : sheets.leftPlain
+          // A part with its own colour is filled with it completely; only
+          // lettering and layers go on top.
+          const solid = pieceFill(config, host, panelKey(host, template.pieces))
+          if (solid) fillPieceSolid(ctx, config, p, solid, V)
+          const sheet = solid ? (lettered ? (side === 'right' ? sheets.rightOver : sheets.leftOver) : null) : side === 'right' ? (lettered ? sheets.right : sheets.rightPlain) : lettered ? sheets.left : sheets.leftPlain
           setM(mul6(mul6(V, invert(toWorld)), sheetToWorld(side, SW)))
-          ctx.drawImage(sheet, 0, 0)
+          if (sheet) ctx.drawImage(sheet, 0, 0)
         }
         // Anything designed on this piece itself.
         const key = panelKey(host, template.pieces)

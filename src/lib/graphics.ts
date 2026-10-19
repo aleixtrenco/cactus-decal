@@ -6,11 +6,11 @@
 import { bikeById, makeInfo } from '../data/bikes'
 import { LOGO_SLOTS, type Palette, type Placement } from '../data/designs'
 import { FONTS, fontById, loadFontFaces } from '../data/fonts'
-import { pieceIdOf, type KitConfig, type Layer } from '../store/config'
-import { firstColor, paintStyle, type Box } from './paint'
+import { pieceIdOf, type KitConfig, type Layer, type LayerPanel } from '../store/config'
+import { firstColor, paintStyle, type Box, type Paint } from './paint'
 import { SHAPES } from './shapes2d'
 import { tracePath, type Seg } from './shapes'
-import { panelsFor, type PanelSet } from './templates'
+import { panelsFor, type PanelSet, type TemplatePiece } from './templates'
 
 export type Side = 'right' | 'left'
 
@@ -872,12 +872,18 @@ function place(p: Placement, panels: PanelSet) {
   return { x: b.x0 + p.rx * w, y: b.y0 + p.ry * h, w: p.rw * w, h: p.rh * h }
 }
 
-// `lettering: false` paints the pattern only (for trim pieces in print files).
-// A single piece with its own base colour uses `pieceVariant`.
-// The design with another base colour, for one piece (pattern only).
-export const pieceVariant = (cfg: KitConfig, base: string): KitConfig => ({ ...cfg, colors: { ...cfg.colors, base }, partColors: {} })
-
-export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side, panels: PanelSet = panelsFor(cfg), { lettering = true, seen }: { lettering?: boolean; seen?: SeenArea } = {}) {
+// Options: `lettering: false` paints the design only; `art: false` only the
+// lettering and layers (on a transparent sheet, to go over a solid-coloured
+// piece); `pieces: true` leaves part colours and the plate background to the
+// caller, which fills each template piece itself so a colour never spills
+// onto a neighbouring piece.
+export function paintSheet(
+  canvas: HTMLCanvasElement,
+  cfg: KitConfig,
+  side: Side,
+  panels: PanelSet = panelsFor(cfg),
+  { lettering = true, art = true, pieces = false, seen }: { lettering?: boolean; art?: boolean; pieces?: boolean; seen?: SeenArea } = {},
+) {
   const W = canvas.width
   const H = canvas.height
   const ctx = canvas.getContext('2d')!
@@ -888,24 +894,25 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
   const sheetBox = { x: x0, y: y0, w: WW, h: WH }
   const c = cfg.colors
   const fills = { base: paintStyle(ctx, c.base, sheetBox), primary: paintStyle(ctx, c.primary, sheetBox), secondary: paintStyle(ctx, c.secondary, sheetBox), accent: paintStyle(ctx, c.accent, sheetBox) }
-  PATTERNS[cfg.designId](ctx, fills)
-  // Main panels with their own base colour: the design again, inside them.
-  for (const role of ['shroud', 'rearFender', 'frontFender'] as const) {
-    const base = cfg.partColors?.[role]
-    if (!base) continue
-    ctx.save()
-    ctx.beginPath()
-    for (const seg of panels[role]) {
-      tracePath(ctx, seg)
-      ctx.closePath()
-    }
-    ctx.clip()
-    PATTERNS[cfg.designId](ctx, { ...fills, base: paintStyle(ctx, base, sheetBox) })
-    ctx.restore()
+  if (art) {
+    PATTERNS[cfg.designId](ctx, fills)
+    // Main panels with their own colour are filled with it completely.
+    if (!pieces)
+      for (const role of ['shroud', 'rearFender', 'frontFender'] as const) {
+        const base = cfg.partColors?.[role]
+        if (!base) continue
+        ctx.beginPath()
+        for (const seg of panels[role]) {
+          tracePath(ctx, seg)
+          ctx.closePath()
+        }
+        ctx.fillStyle = paintStyle(ctx, base, anchorBoxOf(panels[role]))
+        ctx.fill()
+      }
+    // Customer photos used as the whole background go straight over the pattern.
+    for (const l of cfg.layers) if (l.kind === 'image' && l.cover) drawCover(ctx, l, W, H)
+    worldTransform(ctx, side, W, H)
   }
-  // Customer photos used as the whole background go straight over the pattern.
-  for (const l of cfg.layers) if (l.kind === 'image' && l.cover) drawCover(ctx, l, W, H)
-  worldTransform(ctx, side, W, H)
   if (!lettering) {
     ctx.restore()
     ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -913,17 +920,18 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
   }
 
   // Solid number background on the side plate.
-  const plateBox = anchorBoxOf(panels.sidePlate)
-  ctx.fillStyle = paintStyle(ctx, cfg.rider.plateColor, plateBox)
-  ctx.strokeStyle = fills.accent
-  ctx.lineWidth = 0.012
   const blank = cfg.designId === 'blank'
-  for (const seg of panels.sidePlate) {
-    ctx.beginPath()
-    tracePath(ctx, seg)
-    ctx.closePath()
-    ctx.fill()
-    if (!blank) ctx.stroke()
+  if (!pieces) {
+    ctx.fillStyle = paintStyle(ctx, cfg.rider.plateColor, anchorBoxOf(panels.sidePlate))
+    ctx.strokeStyle = fills.accent
+    ctx.lineWidth = 0.012
+    for (const seg of panels.sidePlate) {
+      ctx.beginPath()
+      tracePath(ctx, seg)
+      ctx.closePath()
+      ctx.fill()
+      if (!blank) ctx.stroke()
+    }
   }
   ctx.restore()
 
@@ -958,6 +966,31 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
 // `on` describes the plate on a 3D model: the square canvas is stretched over
 // a `w`×`h` area there, so text is pre-squeezed to read undistorted, and
 // `number` is the band (fractions from the top) clear of e.g. a headlight.
+// The solid colour a template piece is filled with, if any: side plates take
+// the plate background, other parts their own colour once the customer set
+// one (`key` is the panel the piece belongs to).
+export const pieceFill = (cfg: KitConfig, piece: TemplatePiece, key: LayerPanel): Paint | undefined =>
+  piece.role === 'sidePlate' ? cfg.rider.plateColor : piece.role === 'frontPlate' ? undefined : cfg.partColors?.[key]
+
+// Fills a piece (template units, through `base`) with a solid colour; side
+// plates also get the design's accent edge.
+export function fillPieceSolid(ctx: CanvasRenderingContext2D, cfg: KitConfig, piece: TemplatePiece, paint: Paint, base: M6) {
+  ctx.save()
+  ctx.setTransform(base[0], base[1], base[2], base[3], base[4], base[5])
+  ctx.beginPath()
+  piece.outline.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)))
+  ctx.closePath()
+  ctx.fillStyle = paintStyle(ctx, paint, piece.bbox)
+  ctx.fill()
+  if (piece.role === 'sidePlate' && cfg.designId !== 'blank') {
+    ctx.clip()
+    ctx.strokeStyle = paintStyle(ctx, cfg.colors.accent, piece.bbox)
+    ctx.lineWidth = Math.min(piece.bbox.w, piece.bbox.h) * 0.035
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
 export const frontPlateColor = (cfg: KitConfig) => cfg.rider.frontPlateColor ?? cfg.rider.plateColor
 
 export function paintFrontPlate(canvas: HTMLCanvasElement, cfg: KitConfig, on?: { w: number; h: number; number?: [number, number] }) {
@@ -1145,7 +1178,7 @@ export function drawPieceLayer(ctx: CanvasRenderingContext2D, l: Layer, bbox: { 
 // For real 3D models: the kit artwork with everything outside the printed
 // pieces made transparent, so it can be projected onto the model.
 export function paintDecalSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side, outlines: [number, number][][], panels: PanelSet = panelsFor(cfg), seen?: SeenArea) {
-  paintSheet(canvas, cfg, side, panels, { seen })
+  paintSheet(canvas, cfg, side, panels, { pieces: true, seen })
   const ctx = canvas.getContext('2d')!
   ctx.save()
   worldTransform(ctx, side, canvas.width, canvas.height)
