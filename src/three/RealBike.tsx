@@ -16,7 +16,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
 import { ensureAssets, paintDecalSheet, paintFrontPlate, sheetWidth, WORLD } from '../lib/graphics'
-import { panelSet, resolveModel, sideOutlines, type BikeTemplate, type ModelSetup } from '../lib/templates'
+import { modelUrl, panelSet, resolveModel, sideOutlines, type BikeTemplate, type ModelSetup } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
 import { plasticsHex, type KitConfig } from '../store/config'
 
@@ -219,7 +219,7 @@ function loadModel(url: string) {
 }
 
 export default function RealBike({ cfg, template }: { cfg: KitConfig; template: BikeTemplate & { model: ModelSetup } }) {
-  const gltf = loadModel(use(resolveModel(template.model.url)))
+  const gltf = loadModel(use(resolveModel(modelUrl(template.model))))
   const gl = useThree((s) => s.gl)
   const P = useMemo(makeProjector, [])
 

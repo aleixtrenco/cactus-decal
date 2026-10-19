@@ -2338,3 +2338,62 @@ p {
   min-height: 40px;
   text-transform: none;
 }
+
+/* Plain-text buttons */
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--cactus);
+  text-decoration: underline;
+  cursor: pointer;
+}
+/* In-app links rendered as buttons in sandboxed previews look like links. */
+:where(button.app-link) {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.footer button.app-link:hover {
+  color: var(--text);
+}
+
+/* Shown when something crashes outside a page, so it's never just black */
+.crash-note {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9999;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 16px;
+  background: #1b1d17;
+  border: 1px solid #ff5a4f;
+  border-radius: 12px;
+  color: #f2efe6;
+  font: 14px/1.45 system-ui, sans-serif;
+}
+.crash-note b {
+  display: block;
+  margin-bottom: 4px;
+}
+.crash-note code {
+  display: block;
+  margin: 8px 0 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #ffb4ae;
+}
+.crash-note button {
+  margin-right: 8px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: #9be22d;
+  color: #0b0c09;
+  font-weight: 700;
+}

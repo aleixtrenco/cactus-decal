@@ -1,9 +1,9 @@
 import { CameraControls, ContactShadows, Environment, Lightformer } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Component, Suspense, useEffect, useRef, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import type * as THREE from 'three'
 import type { KitConfig } from '../store/config'
-import { useTemplates, type ModelSetup } from '../lib/templates'
+import { isHandheld, useTemplates, type ModelSetup } from '../lib/templates'
 import Bike from './Bike'
 import RealBike from './RealBike'
 
@@ -85,9 +85,20 @@ export default function Stage({
   onApi?: (api: StageApi) => void
   interactive?: boolean
 }) {
+  // If the device drops the 3D context (usually out of graphics memory), stop
+  // and let the surrounding error boundary show the flat preview instead of
+  // a black box.
+  const [lost, setLost] = useState(false)
+  if (lost) throw new Error('The 3D preview ran out of graphics memory on this device.')
   return (
     <Canvas
-      dpr={[1, 2]}
+      dpr={isHandheld() ? [1, 1.5] : [1, 2]}
+      onCreated={({ gl }) =>
+        gl.domElement.addEventListener('webglcontextlost', (e) => {
+          e.preventDefault()
+          setLost(true)
+        })
+      }
       camera={{ position: [2.4, 1.4, 3.0], fov: 32, near: 0.1, far: 50 }}
       gl={{ antialias: true, alpha: true, preserveDrawingBuffer: false }}
       style={{ touchAction: interactive ? 'none' : 'pan-y', pointerEvents: interactive ? 'auto' : 'none' }}

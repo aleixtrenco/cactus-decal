@@ -53,6 +53,8 @@ export interface TemplatePiece {
 // A real 3D bike for this template, plus how it was lined up.
 export interface ModelSetup {
   url: string
+  // Optional lighter copy (smaller textures) loaded on phones and tablets.
+  mobileUrl?: string
   // Turn (degrees about the vertical axis) so the front points to +x.
   yaw: number
   // Fine-tuning after the automatic fit.
@@ -67,6 +69,11 @@ export interface ModelSetup {
 // The sandboxed preview can't serve binary files, so its bundled models are
 // stored as base64 text and turned back into a file in the browser.
 const resolved = new Map<string, Promise<string>>()
+// Phones and tablets have far less graphics memory than computers.
+export const isHandheld = () => typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 900)
+
+export const modelUrl = (m: ModelSetup) => (m.mobileUrl && isHandheld() ? m.mobileUrl : m.url)
+
 export function resolveModel(u: string): Promise<string> {
   // Promises are cached so React's use() sees the same one on every render.
   let p = resolved.get(u)

@@ -18,7 +18,7 @@ export function LazyStage(props: { cfg: KitConfig; view?: View; autoRotate?: boo
   return (
     <div ref={ref} style={{ position: 'absolute', inset: 0 }}>
       {near && (
-        <ErrorBoundary fallback={() => <StageFallback cfg={props.cfg} />}>
+        <ErrorBoundary fallback={(_, retry) => <StageFallback cfg={props.cfg} retry={retry} />}>
           <Suspense fallback={<StageLoading />}>
             <motion.div style={{ position: 'absolute', inset: 0 }} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}>
               <Stage {...props} />
@@ -32,11 +32,16 @@ export function LazyStage(props: { cfg: KitConfig; view?: View; autoRotate?: boo
 }
 
 // Shown when 3D can't run on this device: the flat proof of the design.
-function StageFallback({ cfg }: { cfg: KitConfig }) {
+function StageFallback({ cfg, retry }: { cfg: KitConfig; retry: () => void }) {
   return (
     <div className="stage-fallback">
       <ProofCanvas cfg={cfg} width={900} label="Design preview" />
-      <p>3D preview isn’t available on this device. This is your design laid flat.</p>
+      <p>
+        3D preview isn’t available right now. This is your design laid flat.{' '}
+        <button className="link-btn" onClick={retry}>
+          Try 3D again
+        </button>
+      </p>
     </div>
   )
 }

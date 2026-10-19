@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from 'react'
+import type { CSSProperties, MouseEvent, ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 interface Props {
@@ -11,20 +11,20 @@ interface Props {
   'aria-label'?: string
 }
 
-// Inside the sandboxed preview viewer, clicks on real links are taken over by
-// the viewer (it tries to open them as web pages). There, internal links are
-// rendered without an href and navigate in-app instead.
-function SandboxLink({ to, onClick, children, ...rest }: Props) {
+// Inside the sandboxed preview viewer, clicks on links are taken over by the
+// viewer (it tries to open them as web pages). There, internal links are
+// plain buttons that navigate in-app instead.
+function SandboxLink({ to, onClick, children, className, target: _target, ...rest }: Props) {
   const nav = useNavigate()
-  const go = (e: MouseEvent | KeyboardEvent) => {
+  const go = (e: MouseEvent) => {
     e.preventDefault()
     onClick?.()
     nav(to)
   }
   return (
-    <a {...rest} role="link" tabIndex={0} style={{ cursor: 'pointer', ...rest.style }} onClick={go} onKeyDown={(e) => e.key === 'Enter' && go(e)}>
+    <button {...rest} type="button" className={className ? `app-link ${className}` : 'app-link'} onClick={go}>
       {children}
-    </a>
+    </button>
   )
 }
 
