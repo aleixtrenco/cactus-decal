@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import { drawPieceLayer, ensureAssets, fillPieceSolid, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFill, pieceFrame, sheetWidth, WORLD, type Side } from '../lib/graphics'
+import { drawPieceLayer, drawUpright, ensureAssets, levelAngle, fillPieceSolid, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFill, pieceFrame, riderKeyOf, riderLayers, sheetWidth, WORLD, type Side } from '../lib/graphics'
+import { useSeen } from '../lib/seen'
 import { apply, builtInTemplate, invert, mul6, panelKey, panelPieces, panelsFor, pieceToWorld, useTemplates, type M6, type Role, type TemplatePiece } from '../lib/templates'
 import { firstColor, paintCss } from '../lib/paint'
-import { pieceIdOf, platesOnly, useConfig, type Layer, type LayerPanel } from '../store/config'
+import { pieceIdOf, platesOnly, useConfig, type Layer, type LayerPanel, type TextPlace } from '../store/config'
 import { panelName } from '../lib/layers'
 import Icon from './Icon'
 
@@ -20,7 +21,8 @@ const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
 const PLATES: Role[] = ['frontPlate', 'sidePlate']
 const MAIN: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
 const COLOURS_STEP = 2
-const GRAPHICS_STEP = 3
+const NUMBER_STEP = 3
+const GRAPHICS_STEP = 4
 
 // A piece-panel layer as it sits on `piece`: mirrored when that piece is the
 // other side's twin of the piece naming the panel.
@@ -69,7 +71,10 @@ function corners(b: { cx: number; cy: number; w: number; h: number }, rotation: 
 }
 
 export default function TemplateDesigner({ interactive = true }: { interactive?: boolean }) {
-  const { config, step, setStep, selected, select, updateLayer, removeLayer, duplicateLayer, moveLayer, panel: chosen, setPanel } = useConfig()
+  const { config, step, setStep, selected, select, updateLayer: updateOwn, removeLayer, duplicateLayer, moveLayer, panel: chosen, setPanel, setRider, set } = useConfig()
+  // Where the plastics show on the 3D model, so lettering sits where the 3D
+  // preview puts it.
+  const seen = useSeen((s) => s.byBike[config.bikeId])
   const stored = useTemplates((s) => s.templates[config.bikeId])
   const template = useMemo(() => stored ?? builtInTemplate(config), [stored, config.bikeId]) // eslint-disable-line react-hooks/exhaustive-deps
   const exact = !!stored
@@ -169,8 +174,9 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       // Part colours and plate backgrounds are filled piece by piece below.
       for (const side of ['right', 'left'] as const) {
         paintSheet(sheets.plain[side], config, side, panels, { pieces: true, lettering: false })
-        paintSheet(sheets.text[side], config, side, panels, { pieces: true, art: false, layers: 'none' })
+        paintSheet(sheets.text[side], config, side, panels, { pieces: true, art: false, layers: 'none', seen })
       }
+      const rider = { right: riderLayers(config, panels, 'right', seen), left: riderLayers(config, panels, 'left', seen) }
       const layerSheets = new Map<string, HTMLCanvasElement | null>()
       const layersOf = (role: Role, side: Side) => {
         const k = `${role}|${side}`
@@ -226,6 +232,7 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
             const own = layersOf(host.role, side)
             if (own) ctx.drawImage(own, 0, 0)
             ctx.drawImage(sheets.text[side], 0, 0)
+            for (const l of rider[side]) if (l.panel === host.role) drawUpright(ctx, l, panels, toWorld, V, side)
           }
         }
         // Anything designed on this piece itself.
@@ -264,12 +271,25 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       alive = false
       cancelAnimationFrame(frame)
     }
-  }, [config, template, pieces, fit, size, panel, interactive])
+  }, [config, template, pieces, fit, size, panel, interactive, seen])
 
   // --- Interaction -------------------------------------------------------
 
   const panels = panelsFor(config)
-  const movable = config.layers.filter((l) => !(l.kind === 'image' && l.cover))
+  // The customer's layers, plus the number, name and make lettering, which
+  // move and resize the same way.
+  const lettering = riderLayers(config, panels, 'right', seen).filter((l) => !plates || l.panel === 'sidePlate')
+  const letteringLeft = riderLayers(config, panels, 'left', seen)
+  const movable = [...config.layers.filter((l) => !(l.kind === 'image' && l.cover)), ...lettering]
+  const updateLayer = (id: string, patch: Partial<Layer>) => {
+    const key = riderKeyOf(id)
+    if (!key) return updateOwn(id, patch)
+    const cur = lettering.find((l) => l.id === id)
+    if (!cur) return
+    if (patch.fill) return setRider(key === 'number' ? { numberColor: patch.fill } : key === 'name' ? { nameColor: patch.fill } : {})
+    const at: TextPlace = { x: cur.x, y: cur.y, size: cur.size, rotation: cur.rotation }
+    setRider({ place: { ...config.rider.place, [key]: { ...at, ...patch } } })
+  }
 
   const toTemplate = (e: RPointerEvent): Pt => {
     const r = ref.current!.getBoundingClientRect()
@@ -318,13 +338,17 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     if (!hitPiece) return select(null)
     const l = layerAt(t, hitPiece)
     // Picking a part while colouring stays on the Colours step.
-    if (step !== GRAPHICS_STEP && (l || step !== COLOURS_STEP)) setStep(GRAPHICS_STEP)
+    // The number and lettering are edited on their own step.
+    const want = l && riderKeyOf(l.id) ? NUMBER_STEP : GRAPHICS_STEP
+    if (step !== want && (l || step !== COLOURS_STEP)) setStep(want)
     if (!l) {
       // Tapping a piece picks its panel for designing.
       const p = panelOf(hitPiece.host)
       setPanel(plates && !platePanel(p) ? 'sidePlate' : p)
       return select(null)
     }
+    // Picking the number or lettering shows the panel it is on.
+    if (riderKeyOf(l.id)) setPanel(l.panel)
     select(l.id)
     if (pieceIdOf(l.panel) !== null) {
       // Dragged on whichever piece of the pair was touched.
@@ -359,7 +383,7 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     }
     // Follow whichever piece of the layer's panel the pointer is over; off
     // them, keep the one the drag started on. The layer can't leave its panel.
-    const l = config.layers.find((x) => x.id === d.id)
+    const l = movable.find((x) => x.id === d.id)
     if (!l) return
     const over = pieceAt(t)
     const toWorld = over && onPanel(l, over.host) ? over.toWorld : pieceToWorld(d.piece, template.pieces)
@@ -390,6 +414,21 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
           // Template y points down: a negative height and turn keep the box upright.
           const pts = corners({ ...b, h: -b.h }, -m.rotation).map(toCssPt)
           return { pts, points: pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '), sign: m === sel ? -1 : 1 }
+        })
+    }
+    if (riderKeyOf(sel.id)) {
+      // The number and lettering are drawn upright on each piece: so is their box.
+      return pieces
+        .filter(({ p, printed }) => printed && p.parent === undefined && p.role === sel.panel)
+        .flatMap(({ p, toWorld }) => {
+          const l = p.side === 'left' ? (letteringLeft.find((x) => x.id === sel.id) ?? sel) : sel
+          const b = layerBox(l, panels)
+          const [tx, ty] = apply(invert(toWorld), [b.cx, b.cy])
+          if (!inside([tx, ty], p.outline)) return []
+          const k = Math.sqrt(Math.abs(toWorld[0] * toWorld[3] - toWorld[1] * toWorld[2])) || 1
+          const turn = (levelAngle(toWorld, p.side === 'left' ? 'left' : 'right') * 180) / Math.PI - l.rotation
+          const pts = corners({ cx: tx, cy: ty, w: b.w / k, h: -b.h / k }, turn).map(toCssPt)
+          return [{ pts, points: pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '), sign: -1 }]
         })
     }
     const b = layerBox(sel, panels)
@@ -498,24 +537,40 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
           <button onClick={() => resize(1.15)} aria-label="Bigger" title="Bigger">
             +
           </button>
-          {sel.kind !== 'image' && (
+          {sel.kind !== 'image' && riderKeyOf(sel.id) !== 'make' && (
             <label className="sel-color" title="Colour">
               <span style={{ background: paintCss(sel.fill) }} />
               <input type="color" value={firstColor(sel.fill)} onChange={(e) => updateLayer(sel.id, { fill: e.target.value })} aria-label="Colour" />
             </label>
           )}
-          <button onClick={() => moveLayer(sel.id, 1)} aria-label="Bring forward" title="Bring forward">
-            <Icon name="up" size={16} />
-          </button>
-          <button onClick={() => moveLayer(sel.id, -1)} aria-label="Send backward" title="Send backward">
-            <Icon name="down" size={16} />
-          </button>
-          <button onClick={() => duplicateLayer(sel.id)} aria-label="Duplicate" title="Duplicate">
-            <Icon name="layers" size={16} />
-          </button>
-          <button onClick={() => (removeLayer(sel.id), select(null))} aria-label="Delete" title="Delete">
-            <Icon name="trash" size={16} />
-          </button>
+          {riderKeyOf(sel.id) ? (
+            <>
+              {/* The number and lettering: back to the automatic spot, or hide the make. */}
+              <button onClick={() => setRider({ place: { ...config.rider.place, [riderKeyOf(sel.id)!]: undefined } })} aria-label="Reset position" title="Reset position and size">
+                <Icon name="rotate" size={16} />
+              </button>
+              {riderKeyOf(sel.id) === 'make' && (
+                <button onClick={() => (set({ makeLettering: false }), select(null))} aria-label="Remove make lettering" title="Remove">
+                  <Icon name="trash" size={16} />
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <button onClick={() => moveLayer(sel.id, 1)} aria-label="Bring forward" title="Bring forward">
+                <Icon name="up" size={16} />
+              </button>
+              <button onClick={() => moveLayer(sel.id, -1)} aria-label="Send backward" title="Send backward">
+                <Icon name="down" size={16} />
+              </button>
+              <button onClick={() => duplicateLayer(sel.id)} aria-label="Duplicate" title="Duplicate">
+                <Icon name="layers" size={16} />
+              </button>
+              <button onClick={() => (removeLayer(sel.id), select(null))} aria-label="Delete" title="Delete">
+                <Icon name="trash" size={16} />
+              </button>
+            </>
+          )}
         </div>
       )}
       {interactive && (

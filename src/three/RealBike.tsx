@@ -15,7 +15,8 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
-import { drawPieceLayer, ensureAssets, fillPieceSolid, paintDecalSheet, paintFrontPlate, paintSheet, pieceFill, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
+import { drawLayer, drawPieceLayer, ensureAssets, fillPieceSolid, paintDecalSheet, paintFrontPlate, paintSheet, pieceFill, riderLayers, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
+import { useSeen } from '../lib/seen'
 import { FRONT_WHEEL } from '../lib/shapes'
 import { invert, modelUrl, mul6, onModel, panelKey, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role, type TemplatePiece } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
@@ -328,6 +329,7 @@ function fillPiece(c: HTMLCanvasElement, piece: TemplatePiece, base: M6, img: HT
 // neighbouring piece; then the layers designed on single pieces.
 function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: ReturnType<typeof panelSet>, roles?: Role[], seen?: SeenArea) {
   const overlay = overlays(cfg, panels, P.sheets.right.width, seen)
+  const lettering = { right: riderLayers(cfg, panels, 'right', seen), left: riderLayers(cfg, panels, 'left', seen) }
   for (const side of ['right', 'left'] as const) {
     const c = P.sheets[side]
     for (const p of t.pieces) {
@@ -340,6 +342,16 @@ function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: 
           const o = overlay(side, what)
           if (o) fillPiece(c, p, base, o, [1, 0, 0, 1, 0, 0])
         }
+        // The number and lettering, level on the bike, kept to the piece.
+        const ctx = c.getContext('2d')!
+        ctx.save()
+        ctx.setTransform(...base)
+        ctx.beginPath()
+        p.outline.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)))
+        ctx.closePath()
+        ctx.clip()
+        for (const l of lettering[side]) if (l.panel === p.role) drawLayer(ctx, l, panels, side, c.width, c.height)
+        ctx.restore()
       }
       paintPieceLayers(c, cfg, t, p, base)
     }
@@ -530,7 +542,10 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
     if (f) P.uniforms.uFenderRect.value.set(f.x0, f.x1, f.w, 1)
     else P.uniforms.uFenderRect.value.set(0, 0, 0, 0)
     P.uniforms.uOn.value = 1
-    setSeen(seenArea(gl, root.children[0], cams, `${template.model.url}|${yaw}|${scale}|${dx}|${dy}`))
+    const area = seenArea(gl, root.children[0], cams, `${template.model.url}|${yaw}|${scale}|${dx}|${dy}`)
+    setSeen(area)
+    // The template and print file place lettering with the same map.
+    useSeen.getState().put(template.bikeId, area)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [root, gl, P, yaw, scale, dx, dy, plate.y, plate.w, plate.h])
 

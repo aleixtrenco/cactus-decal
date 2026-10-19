@@ -4,8 +4,9 @@ import { useSearchParams } from 'react-router-dom'
 import { Contours, Header } from '../components/Chrome'
 import ColorField from '../components/ColorField'
 import GraphicsStep from '../components/GraphicsStep'
-import { newId, panelName, panelsAllowed, piecePanels, prepareImage } from '../lib/layers'
-import { sideOutlines, useAvailableBikes, useTemplates } from '../lib/templates'
+import { panelsAllowed, piecePanels } from '../lib/layers'
+import { panelsFor, sideOutlines, useAvailableBikes, useTemplates } from '../lib/templates'
+import { useSeen } from '../lib/seen'
 import TemplateDesigner from '../components/TemplateDesigner'
 import Icon from '../components/Icon'
 import { paintCss } from '../lib/paint'
@@ -34,8 +35,8 @@ import {
 } from '../data/pricing'
 import { decodeConfig, encodeConfig } from '../lib/share'
 import { drawProof } from '../lib/proof'
-import { ensureAssets, frontPlateColor, loadImage } from '../lib/graphics'
-import { STEPS, pieceIdOf, platesOnly, priceInput, useConfig, type KitConfig, type LayerPanel, type PlasticsId } from '../store/config'
+import { ensureAssets, frontPlateColor, riderId, riderKeyOf, riderLayers } from '../lib/graphics'
+import { STEPS, pieceIdOf, platesOnly, priceInput, useConfig, type KitConfig, type LayerPanel, type PlasticsId, type RiderText, type TextPlace } from '../store/config'
 import type { Paint } from '../lib/paint'
 import type { StageApi, View } from '../three/Stage'
 
@@ -214,11 +215,10 @@ export default function Configurator() {
                 {step === 0 && <BikeStep />}
                 {step === 1 && <DesignStep />}
                 {step === 2 && <ColourStep />}
-                {step === 3 && <GraphicsStep />}
-                {step === 4 && <RiderStep />}
-                {step === 5 && <LogoStep />}
-                {step === 6 && <ExtrasStep />}
-                {step === 7 && <ReviewStep onToast={setToast} onShare={share} />}
+                {step === 3 && <RiderStep />}
+                {step === 4 && <GraphicsStep />}
+                {step === 5 && <ExtrasStep />}
+                {step === 6 && <ReviewStep onToast={setToast} onShare={share} />}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -460,7 +460,7 @@ function DesignStep() {
   return (
     <>
       <StepHead title="Design" lead="Start from a blank kit and build your own, or pick one of our designs. You can change every colour later." />
-      <button className="design-pick blank-pick" aria-pressed={blank} onClick={() => (blank ? setStep(3) : chooseDesign('blank'))}>
+      <button className="design-pick blank-pick" aria-pressed={blank} onClick={() => (blank ? setStep(4) : chooseDesign('blank'))}>
         <span className="blank-icon" aria-hidden="true">
           <Icon name="plus" size={26} />
         </span>
@@ -610,12 +610,64 @@ function ColourStep() {
   )
 }
 
+// Size and position of the number, name and make lettering: automatic until
+// changed here or on the template (same on both sides of the bike).
+function LetteringPlace() {
+  const { config, setRider, select, setPanel } = useConfig()
+  const selected = useConfig((s) => s.selected)
+  const seen = useSeen((s) => s.byBike[config.bikeId])
+  const items = riderLayers(config, panelsFor(config), 'right', seen).filter((l) => !platesOnly(config) || l.panel === 'sidePlate')
+  const LABEL: Record<RiderText, string> = { number: 'Number (side plates)', name: 'Name (shrouds)', make: 'Make (shrouds)' }
+  const key = riderKeyOf(selected) ?? 'number'
+  const item = items.find((l) => l.id === riderId(key)) ?? items[0]
+  if (!item) return null
+  const k = riderKeyOf(item.id)!
+  const put = (patch: Partial<TextPlace>) => setRider({ place: { ...config.rider.place, [k]: { x: item.x, y: item.y, size: item.size, rotation: item.rotation, ...patch } } })
+  return (
+    <div className="group">
+      <div className="group-label">
+        Size & position <span>{config.rider.place?.[k] ? 'Moved by you' : 'Automatic'}</span>
+      </div>
+      <div className="chips" role="group" aria-label="Lettering">
+        {items.map((l) => (
+          <button key={l.id} className="chip chip-sm" aria-pressed={l.id === item.id} onClick={() => (setPanel(l.panel), select(l.id))}>
+            {LABEL[riderKeyOf(l.id)!]}
+          </button>
+        ))}
+      </div>
+      <div className="sliders" style={{ marginTop: 12 }}>
+        {(
+          [
+            ['Size', 'size', 0.05, 1.2, 0.01],
+            ['Left / right', 'x', 0, 1, 0.01],
+            ['Up / down', 'y', 0, 1, 0.01],
+            ['Rotation', 'rotation', -45, 45, 1],
+          ] as const
+        ).map(([lab, f, min, max, step]) => (
+          <label key={f} className="slider">
+            <span>{lab}</span>
+            <input type="range" min={min} max={max} step={step} value={item[f]} onChange={(e) => put({ [f]: +e.target.value })} />
+          </label>
+        ))}
+      </div>
+      {config.rider.place?.[k] && (
+        <button className="chip chip-sm" style={{ marginTop: 10 }} onClick={() => setRider({ place: { ...config.rider.place, [k]: undefined } })}>
+          Back to automatic
+        </button>
+      )}
+    </div>
+  )
+}
+
 function RiderStep() {
   const { config, setRider, set } = useConfig()
   const r = config.rider
   return (
     <>
-      <StepHead title="Name & number" lead="Your number goes on the side plates and front plate. Your name goes on the shrouds." />
+      <StepHead
+        title="Number & name"
+        lead="Your number goes on the side plates and front plate, your name and the bike make on the shrouds. Drag or resize them on the template, or use the sliders below. Plate background colours are on the Colours step."
+      />
       <div className="group row-2">
         <div className="field">
           <label htmlFor="rider-number">Number</label>
@@ -668,18 +720,6 @@ function RiderStep() {
       </div>
       <div className="group">
         <div className="group-label">
-          Side plates background <span>{swatchName(r.plateColor)}</span>
-        </div>
-        <ColorField value={r.plateColor} onChange={(p) => setRider({ plateColor: p })} label="Side plates background colour" />
-      </div>
-      <div className="group">
-        <div className="group-label">
-          Front plate background <span>{swatchName(frontPlateColor(config))}</span>
-        </div>
-        <ColorField value={frontPlateColor(config)} onChange={(p) => setRider({ frontPlateColor: p })} label="Front plate background colour" />
-      </div>
-      <div className="group">
-        <div className="group-label">
           Number colour <span>{swatchName(r.numberColor)}</span>
         </div>
         <ColorField value={r.numberColor} onChange={(p) => setRider({ numberColor: p })} label="Number colour" />
@@ -690,6 +730,7 @@ function RiderStep() {
         </div>
         <ColorField value={r.nameColor} onChange={(p) => setRider({ nameColor: p })} label="Name colour" />
       </div>
+      <LetteringPlace />
       <div className="group">
         <button className="toggle" role="switch" aria-checked={config.makeLettering} onClick={() => set({ makeLettering: !config.makeLettering })}>
           <span>
@@ -699,117 +740,6 @@ function RiderStep() {
           <span className="track" aria-hidden="true" />
         </button>
       </div>
-    </>
-  )
-}
-
-const MAX_LOGOS = 6
-
-function LogoStep() {
-  const { config, addLayer, removeLayer, updateLayer, select, setPanel, setStep } = useConfig()
-  const chosen = useConfig((s) => s.panel)
-  const [error, setError] = useState<string | null>(null)
-  const [drag, setDrag] = useState(false)
-  const input = useRef<HTMLInputElement>(null)
-  const logos = config.layers.filter((l) => l.logo)
-  const template = useTemplates((s) => s.templates[config.bikeId])
-  const plates = platesOnly(config)
-  const allowed: [LayerPanel, string][] = [...panelsAllowed(plates), ...piecePanels(template, plates).map((x): [LayerPanel, string] => [x.panel, x.label])]
-  const target: LayerPanel = allowed.some(([p]) => p === chosen) && chosen !== 'kit' ? chosen : allowed[0][0]
-
-  const accept = async (files: FileList | null) => {
-    setError(null)
-    if (!files?.length) return
-    const file = files[0]
-    if (!/^image\/(png|jpeg|svg\+xml|webp)$/.test(file.type)) return setError('That file type is not supported. Upload a PNG, JPG, SVG or WebP image.')
-    if (file.size > 15 * 1024 * 1024) return setError('That file is over 15 MB. Export a smaller version and try again.')
-    if (logos.length >= MAX_LOGOS) return setError(`You can add up to ${MAX_LOGOS} logos. Remove one to add another.`)
-    try {
-      const src = await prepareImage(file)
-      await loadImage(src)
-      const id = newId()
-      addLayer({ id, kind: 'image', logo: true, src, name: file.name, panel: target, x: 0.5, y: 0.5, size: 0.25, rotation: 0, opacity: 1, fill: '#ffffff' })
-      select(id)
-    } catch {
-      return setError('We could not read that image. Try exporting it again as PNG.')
-    }
-    if (input.current) input.current.value = ''
-  }
-
-  return (
-    <>
-      <StepHead title="Logos" lead="Add sponsor, team or shop logos, then drag them anywhere on the template. Use the corner handle to resize." />
-      <div className="group">
-        <label
-          className={`upload ${drag ? 'drag' : ''}`}
-          onDragOver={(e) => {
-            e.preventDefault()
-            setDrag(true)
-          }}
-          onDragLeave={() => setDrag(false)}
-          onDrop={(e) => {
-            e.preventDefault()
-            setDrag(false)
-            accept(e.dataTransfer.files)
-          }}
-        >
-          <Icon name="upload" size={28} />
-          <b>Upload a logo</b>
-          <small>PNG with a transparent background or SVG works best. It goes on the {panelName(target, template).toLowerCase()} first.</small>
-          <input
-            ref={input}
-            type="file"
-            accept="image/png,image/jpeg,image/svg+xml,image/webp"
-            className="sr-only"
-            onChange={(e) => accept(e.target.files)}
-            aria-describedby={error ? 'logo-error' : undefined}
-          />
-        </label>
-        {error && (
-          <p className="error" id="logo-error" role="alert">
-            {error}
-          </p>
-        )}
-      </div>
-      {logos.length > 0 && (
-        <div className="group">
-          <div className="group-label">
-            Your logos{' '}
-            <span>
-              {logos.length} of {MAX_LOGOS}
-            </span>
-          </div>
-          {logos.map((l) => (
-            <div className="logo-row" key={l.id}>
-              <img src={l.src} alt={l.name} />
-              <select
-                className="select"
-                value={l.panel}
-                onChange={(e) => {
-                  const p = e.target.value as LayerPanel
-                  updateLayer(l.id, { panel: p, x: 0.5, y: 0.5 })
-                  setPanel(p)
-                  select(l.id)
-                }}
-                aria-label={`Panel for ${l.name}`}
-              >
-                {allowed.map(([p, name]) => (
-                  <option key={p} value={p}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-              <button className="icon-btn" onClick={() => (select(l.id), setStep(3))} aria-label={`Edit ${l.name}`} title="Size, rotation and more">
-                <Icon name="layers" size={18} />
-              </button>
-              <button className="icon-btn" onClick={() => removeLayer(l.id)} aria-label={`Remove ${l.name}`}>
-                <Icon name="trash" size={18} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <p className="note">We check every logo before printing and will contact you if a file needs replacing. Logos are free to add.</p>
     </>
   )
 }

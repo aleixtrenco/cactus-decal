@@ -96,7 +96,7 @@ export default function GraphicsStep() {
   return (
     <>
       <h2>Graphics</h2>
-      <p className="lead">Choose a panel, then add shapes, text, logos or photos to it. Drag them on the template; the 3D bike updates as you go.</p>
+      <p className="lead">Choose a panel, then add your own shapes, text, logos or photos to it. Drag them on the template; the 3D bike updates as you go. Your number and name are on the Number &amp; name step, colours on the Colours step.</p>
 
       <div className="group">
         <div className="group-label">

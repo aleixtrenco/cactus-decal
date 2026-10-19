@@ -67,6 +67,14 @@ export interface Layer {
   logo?: boolean
 }
 
+export type RiderText = 'number' | 'name' | 'make'
+export interface TextPlace {
+  x: number
+  y: number
+  size: number
+  rotation: number
+}
+
 export interface KitConfig {
   bikeId: string
   designId: DesignId
@@ -74,7 +82,18 @@ export interface KitConfig {
   plastics: PlasticsId
   // plateColor: the side plates; frontPlateColor: the front plate (follows
   // the side plates until it is set on its own).
-  rider: { name: string; number: string; font: NumberFont; numberColor: string; plateColor: string; frontPlateColor?: string; nameColor: string }
+  // `place`: where the customer moved or resized the number, name or make
+  // lettering (like a layer on that panel); automatic until then.
+  rider: {
+    name: string
+    number: string
+    font: NumberFont
+    numberColor: string
+    plateColor: string
+    frontPlateColor?: string
+    nameColor: string
+    place?: Partial<Record<RiderText, TextPlace>>
+  }
   makeLettering: boolean
   logos: Logo[]
   layers: Layer[]
@@ -126,7 +145,7 @@ export const priceInput = (c: KitConfig): PriceInput => ({
 
 export const platesOnly = (c: { kit?: KitId }) => c.kit === 'plates'
 
-export const STEPS = ['Bike', 'Design', 'Colours', 'Graphics', 'Rider', 'Logos', 'Extras', 'Review'] as const
+export const STEPS = ['Bike', 'Design', 'Colours', 'Number & name', 'Graphics', 'Extras', 'Review'] as const
 export type Step = (typeof STEPS)[number]
 
 interface Store {

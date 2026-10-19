@@ -15,7 +15,8 @@ import { bikeById, typeLabel } from '../data/bikes'
 import { designById } from '../data/designs'
 import { FINISHES, MATERIALS } from '../data/pricing'
 import { pieceIdOf, platesOnly, type KitConfig, type LayerPanel } from '../store/config'
-import { drawPieceLayer, fillPieceSolid, paintFrontPlate, paintSheet, pieceFill, WORLD, type Side } from './graphics'
+import { drawPieceLayer, drawUpright, fillPieceSolid, paintFrontPlate, paintSheet, pieceFill, riderLayers, WORLD, type Side } from './graphics'
+import { seenFor } from './seen'
 import { paintStyle } from './paint'
 import { builtInTemplate, invert, mount, panelKey, pieceElements, pieceToWorld, panelsFor, toRoot, type BikeTemplate, type M6, type Role, type TemplatePiece } from './templates'
 
@@ -312,12 +313,15 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
   const bleed = vw * 0.002
   // Lettering and customer layers only on the main pieces, not on trim.
   const panels = panelsFor(cfg)
+  // Same lettering spots as the 3D preview, when it has measured the model.
+  const seen = seenFor(cfg.bikeId)
+  const lettering = { right: riderLayers(cfg, panels, 'right', seen), left: riderLayers(cfg, panels, 'left', seen) }
   // Part colours, plate backgrounds, panel layers and lettering are added
   // piece by piece below, so each shows only on its own pieces.
   const art = (side: Side) => record(f, SHEET_W, SHEET_W / 2, (c) => paintSheet(c, cfg, side, panels, { lettering: false, pieces: true }))
   const over = (side: Side, what: 'text' | Role) =>
     record(f, SHEET_W, SHEET_W / 2, (c) =>
-      paintSheet(c, cfg, side, panels, what === 'text' ? { art: false, pieces: true, layers: 'none' } : { art: false, pieces: true, layers: what as LayerPanel, text: false }),
+      paintSheet(c, cfg, side, panels, what === 'text' ? { art: false, pieces: true, layers: 'none', seen } : { art: false, pieces: true, layers: what as LayerPanel, text: false }),
     )
   const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
   const big = `x="${n(vx - vw)}" y="${n(vy - vh)}" width="${n(vw * 3)}" height="${n(vh * 3)}"`
@@ -371,7 +375,10 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
         })
       : ''
     const refs = [solid ? '' : `#art-${side}`, ...(lettered ? [panelLayers(side, host.role), `#text-${side}`] : [])].filter(Boolean)
-    const use = refs.map((ref) => `<use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/>`).join('')
+    // The number and lettering, upright on the piece in template units.
+    const mine = lettered ? lettering[side].filter((l) => l.panel === host.role) : []
+    const letters = mine.length ? record(f, vw, vh, (c) => mine.forEach((l) => drawUpright(c.getContext('2d')!, l, panels, pieceToWorld(p, t.pieces), [1, 0, 0, 1, 0, 0], side))) : ''
+    const use = refs.map((ref) => `<use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/>`).join('') + letters
     printed.push(`<g id="piece-${p.id}-${p.role}" mask="url(#m${p.id})">${fill}${use}${own(p)}</g>`)
   }
   const cut = pieces.map((p) => paint(shapeOf(p), `fill="none" stroke="#ec008c" stroke-width="${n(vw * 0.0004)}"`)).join('\n')

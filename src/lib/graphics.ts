@@ -5,12 +5,12 @@
 
 import { bikeById, makeInfo } from '../data/bikes'
 import { LOGO_SLOTS, type Palette, type Placement } from '../data/designs'
-import { FONTS, fontById, loadFontFaces } from '../data/fonts'
-import { pieceIdOf, type KitConfig, type Layer, type LayerPanel } from '../store/config'
+import { FONTS, fontById, loadFontFaces, type FontId } from '../data/fonts'
+import { pieceIdOf, type KitConfig, type Layer, type LayerPanel, type RiderText } from '../store/config'
 import { firstColor, paintStyle, type Box, type Paint } from './paint'
 import { SHAPES } from './shapes2d'
 import { tracePath, type Seg } from './shapes'
-import { panelsFor, type PanelSet, type TemplatePiece } from './templates'
+import { apply as applyM6, invert as invertM6, panelsFor, type PanelSet, type TemplatePiece } from './templates'
 
 export type Side = 'right' | 'left'
 
@@ -951,6 +951,70 @@ function numberBox(panels: PanelSet, seen?: SeenArea, side: Side = 'right') {
   return { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, w: w * 1.05, h: h * 1.05 }
 }
 
+// The number, name and make lettering as text layers on their panels (ids
+// "__number", "__name", "__make"), so they can be moved and resized like any
+// text. Placed automatically (inside the plates and shrouds, on the parts that
+// show) until the customer moves them; then the same on both sides.
+export const riderId = (k: RiderText) => `__${k}`
+export const riderKeyOf = (id: string | null): RiderText | null => (id && /^__(number|name|make)$/.test(id) ? (id.slice(2) as RiderText) : null)
+
+export function riderLayers(cfg: KitConfig, panels: PanelSet, side: Side = 'right', seen?: SeenArea): Layer[] {
+  const out: Layer[] = []
+  const T = shroudText(panels, seen)
+  const add = (key: RiderText, panel: 'sidePlate' | 'shroud', text: string, font: FontId, fill: string, outline: string | undefined, auto: (s: Side) => { x: number; y: number; w: number; h: number }) => {
+    if (!text) return
+    const b = anchorBox(panels[panel])
+    const pw = b.x1 - b.x0 || 1
+    const ph = b.y1 - b.y0 || 1
+    const base: Layer = { id: riderId(key), kind: 'text', panel, text, font, fill, outline, x: 0.5, y: 0.5, size: 0.2, rotation: 0, opacity: 1 }
+    // The automatic spot: the text fitted inside the box for that side.
+    const spot = (s: Side) => {
+      const a = auto(s)
+      const h = Math.min(a.h, a.w / layerAspect(base))
+      return { x: (a.x - b.x0) / pw, y: (a.y - b.y0) / ph, size: h / ph }
+    }
+    const here = spot(side)
+    const at = cfg.rider.place?.[key]
+    if (!at) return out.push({ ...base, ...here })
+    // Moved by the customer (on the right side): the left side moves and
+    // scales the same from its own automatic spot, as its plate can be cut
+    // differently.
+    if (side === 'right') return out.push({ ...base, ...at })
+    const r = spot('right')
+    out.push({ ...base, x: here.x + (at.x - r.x), y: here.y + (at.y - r.y), size: here.size * (at.size / (r.size || 1)), rotation: at.rotation })
+  }
+  const r = cfg.rider
+  add('number', 'sidePlate', r.number, r.font, r.numberColor, outlineFor(r.numberColor) === '#101010' ? '#101010' : undefined, (s) => numberBox(panels, seen, s))
+  add('name', 'shroud', r.name.toUpperCase(), r.font, r.nameColor, outlineFor(r.nameColor), () => T.name)
+  if (cfg.makeLettering) add('make', 'shroud', makeInfo(bikeById(cfg.bikeId).make).make.toUpperCase(), 'italic', cfg.colors.accent, outlineFor(cfg.colors.accent), () => T.make)
+  return out
+}
+
+// The angle (template units, y down, radians) that keeps text level on the
+// bike on a template piece: the bike's forward direction as it reads from
+// that side, mapped onto the piece. `toWorld` maps the piece to the bike.
+export function levelAngle(toWorld: M6, side: Side) {
+  const inv = invertM6(toWorld)
+  const s = side === 'left' ? -1 : 1
+  return Math.atan2(inv[1] * s, inv[0] * s)
+}
+
+// Draws a main-panel text layer on one template piece where it sits on the
+// bike: level on the bike, but never stretched or skewed by the piece's fit
+// to the bike. `base` maps template units to the context.
+export function drawUpright(ctx: CanvasRenderingContext2D, l: Layer, panels: PanelSet, toWorld: M6, base: M6, side: Side) {
+  const f = layerFrame(l, panels)
+  const [tx, ty] = applyM6(invertM6(toWorld), [f.cx, f.cy])
+  const k = Math.sqrt(Math.abs(toWorld[0] * toWorld[3] - toWorld[1] * toWorld[2])) || 1
+  ctx.save()
+  ctx.globalAlpha = l.opacity
+  ctx.setTransform(base[0], base[1], base[2], base[3], base[4], base[5])
+  ctx.translate(tx, ty)
+  ctx.rotate(levelAngle(toWorld, side) - (l.rotation * Math.PI) / 180)
+  flatBody(ctx, l, f.h / k)
+  ctx.restore()
+}
+
 // Name and make lettering share the biggest wide box inside the shroud (make
 // on top), and the tag sits inside the rear fender, so none of it runs off a
 // panel edge or onto the seat or tank on a real model.
@@ -996,7 +1060,6 @@ export function paintSheet(
   const W = canvas.width
   const H = canvas.height
   const ctx = canvas.getContext('2d')!
-  const make = makeInfo(bikeById(cfg.bikeId).make)
 
   ctx.save()
   worldTransform(ctx, side, W, H)
@@ -1054,13 +1117,9 @@ export function paintSheet(
     return
   }
 
-  const font = fontById(cfg.rider.font).css
-  const T = shroudText(panels, seen)
-  drawText(ctx, cfg.rider.number, numberBox(panels, seen, side), side, W, H, font, cfg.rider.numberColor, outlineFor(cfg.rider.numberColor) === '#101010' ? '#101010' : undefined)
-  drawText(ctx, cfg.rider.name.toUpperCase(), T.name, side, W, H, font, cfg.rider.nameColor, outlineFor(cfg.rider.nameColor))
-  if (cfg.makeLettering) {
-    drawText(ctx, make.make.toUpperCase(), T.make, side, W, H, FONTS.italic.css, cfg.colors.accent, outlineFor(cfg.colors.accent))
-  }
+  // Number, name and make: with template pieces they are drawn upright on
+  // each piece (drawUpright), so they never come out skewed.
+  if (!pieces) for (const l of riderLayers(cfg, panels, side, seen)) drawLayer(ctx, l, panels, side, W, H)
   if (!blank) drawText(ctx, 'CACTUS DECAL LAB', tagBox(panels, seen), side, W, H, (px) => `700 ${px}px "Saira"`, outlineFor(cfg.colors.base) === '#101010' ? '#101010' : '#f4f4f2')
 
   for (const logo of cfg.logos) {
@@ -1244,7 +1303,7 @@ function flatBody(ctx: CanvasRenderingContext2D, l: Layer, hp: number) {
   }
 }
 
-function drawLayer(ctx: CanvasRenderingContext2D, l: Layer, panels: PanelSet, side: Side, W: number, H: number) {
+export function drawLayer(ctx: CanvasRenderingContext2D, l: Layer, panels: PanelSet, side: Side, W: number, H: number) {
   const f = layerFrame(l, panels)
   ctx.save()
   ctx.globalAlpha = l.opacity
