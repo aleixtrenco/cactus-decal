@@ -8,9 +8,9 @@
 // the same on any machine without the fonts installed.
 
 import opentype from 'opentype.js'
-import ecUrl from '@fontsource/saira-extra-condensed/files/saira-extra-condensed-latin-800-normal.woff?url'
 import s7Url from '@fontsource/saira/files/saira-latin-700-normal.woff?url'
 import s8Url from '@fontsource/saira/files/saira-latin-800-normal.woff?url'
+import { FONTS } from '../data/fonts'
 import { bikeById, typeLabel } from '../data/bikes'
 import { designById } from '../data/designs'
 import { FINISHES, MATERIALS } from '../data/pricing'
@@ -23,18 +23,31 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 const n = (v: number) => (Math.abs(v) < 1e-9 ? '0' : +v.toFixed(3) + '')
 
 
-interface Fonts {
-  ec800: opentype.Font
-  s700: opentype.Font
-  s800: opentype.Font
-}
-let fonts: Promise<Fonts | null> | null = null
-function loadFonts() {
-  const one = (u: string) => fetch(u).then((r) => r.arrayBuffer()).then((b) => opentype.parse(b))
-  fonts ??= Promise.all([one(ecUrl), one(s7Url), one(s8Url)])
-    .then(([ec800, s700, s800]) => ({ ec800, s700, s800 }))
-    .catch(() => null)
-  return fonts
+// Loaded font files by "family|weight", for outlining lettering.
+type Fonts = Map<string, opentype.Font>
+const fontFiles = new Map<string, string>([
+  ...Object.values(FONTS).map((f) => [`${f.family}|${f.weight}`, f.file] as [string, string]),
+  ['Saira|700', s7Url],
+  ['Saira|800', s8Url],
+])
+const fontCache = new Map<string, Promise<opentype.Font | null>>()
+async function loadFonts(): Promise<Fonts> {
+  const out: Fonts = new Map()
+  await Promise.all(
+    [...fontFiles].map(async ([key, url]) => {
+      if (!fontCache.has(key))
+        fontCache.set(
+          key,
+          fetch(url)
+            .then((r) => r.arrayBuffer())
+            .then((b) => opentype.parse(b))
+            .catch(() => null),
+        )
+      const f = await fontCache.get(key)!
+      if (f) out.set(key, f)
+    }),
+  )
+  return out
 }
 // Matches the browser's synthetic italic closely enough for lettering.
 const ITALIC_SKEW = Math.tan((12 * Math.PI) / 180)
@@ -50,8 +63,8 @@ const mstr = (m: M6) => `matrix(${m.map(n).join(' ')})`
 
 interface State {
   m: M6
-  fillStyle: string
-  strokeStyle: string
+  fillStyle: Style
+  strokeStyle: Style
   lineWidth: number
   globalAlpha: number
   font: string
@@ -61,8 +74,29 @@ interface State {
   lineCap: CanvasLineCap
 }
 
+// A linear gradient as the painters create it (in their own coordinates).
+class RecGradient {
+  stops: [number, string][] = []
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+  constructor(x0: number, y0: number, x1: number, y1: number) {
+    this.x0 = x0
+    this.y0 = y0
+    this.x1 = x1
+    this.y1 = y1
+  }
+  addColorStop(o: number, c: string) {
+    this.stops.push([o, c])
+  }
+}
+type Style = string | RecGradient
+let gradientIds = 0
+
 // Records the subset of CanvasRenderingContext2D our painters use.
 class SvgRecorder {
+  defs: string[] = []
   out: string[] = []
   private s: State = { m: [1, 0, 0, 1, 0, 0], fillStyle: '#000', strokeStyle: '#000', lineWidth: 1, globalAlpha: 1, font: '10px sans-serif', textAlign: 'start', textBaseline: 'alphabetic', lineJoin: 'miter', lineCap: 'butt' }
   private stack: State[] = []
@@ -74,10 +108,26 @@ class SvgRecorder {
     this.fonts = fonts
   }
 
-  get fillStyle() { return this.s.fillStyle }
-  set fillStyle(v: string) { this.s.fillStyle = v }
-  get strokeStyle() { return this.s.strokeStyle }
-  set strokeStyle(v: string) { this.s.strokeStyle = v }
+  get fillStyle(): Style { return this.s.fillStyle }
+  set fillStyle(v: Style) { this.s.fillStyle = v }
+  get strokeStyle(): Style { return this.s.strokeStyle }
+  set strokeStyle(v: Style) { this.s.strokeStyle = v }
+  createLinearGradient(x0: number, y0: number, x1: number, y1: number) { return new RecGradient(x0, y0, x1, y1) }
+  // SVG paint for a style. Gradients are defined in the painter's current
+  // coordinates: `m` maps them to the element's own coordinates.
+  private paint(v: Style, m: M6 = this.s.m): string {
+    if (typeof v === 'string') return v
+    const id = `cdlg${++gradientIds}`
+    const p0 = [m[0] * v.x0 + m[2] * v.y0 + m[4], m[1] * v.x0 + m[3] * v.y0 + m[5]]
+    const p1 = [m[0] * v.x1 + m[2] * v.y1 + m[4], m[1] * v.x1 + m[3] * v.y1 + m[5]]
+    this.defs.push(
+      `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${n(p0[0])}" y1="${n(p0[1])}" x2="${n(p1[0])}" y2="${n(p1[1])}">${v.stops.map(([o, c]) => `<stop offset="${n(o)}" stop-color="${c}"/>`).join('')}</linearGradient>`,
+    )
+    return `url(#${id})`
+  }
+  translate(x: number, y: number) { this.s.m = mul(this.s.m, [1, 0, 0, 1, x, y]) }
+  rotate(a: number) { this.s.m = mul(this.s.m, [Math.cos(a), Math.sin(a), -Math.sin(a), Math.cos(a), 0, 0]) }
+  scale(x: number, y: number) { this.s.m = mul(this.s.m, [x, 0, 0, y, 0, 0]) }
   get lineWidth() { return this.s.lineWidth }
   set lineWidth(v: number) { this.s.lineWidth = v }
   get globalAlpha() { return this.s.globalAlpha }
@@ -101,7 +151,7 @@ class SvgRecorder {
     const [a, b, c, d, e, f] = this.s.m
     return `${n(a * x + c * y + e)} ${n(b * x + d * y + f)}`
   }
-  private scale() {
+  private unit() {
     const [a, b, c, d] = this.s.m
     return Math.sqrt(Math.abs(a * d - b * c))
   }
@@ -115,7 +165,7 @@ class SvgRecorder {
   arc(x: number, y: number, r: number, a0: number, a1: number) {
     if (!this.d && a1 - a0 >= Math.PI * 2 - 1e-6) {
       const [a, b, c, d, e, f] = this.s.m
-      this.circle = { cx: a * x + c * y + e, cy: b * x + d * y + f, r: r * this.scale() }
+      this.circle = { cx: a * x + c * y + e, cy: b * x + d * y + f, r: r * this.unit() }
       return
     }
     for (let i = 0; i <= 24; i++) {
@@ -126,28 +176,28 @@ class SvgRecorder {
   fill() {
     if (this.circle) {
       const { cx, cy, r } = this.circle
-      this.out.push(`<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r)}" fill="${this.s.fillStyle}"${this.alpha()}/>`)
-    } else if (this.d) this.out.push(`<path d="${this.d}" fill="${this.s.fillStyle}"${this.alpha()}/>`)
+      this.out.push(`<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r)}" fill="${this.paint(this.s.fillStyle)}"${this.alpha()}/>`)
+    } else if (this.d) this.out.push(`<path d="${this.d}" fill="${this.paint(this.s.fillStyle)}"${this.alpha()}/>`)
   }
   stroke() {
     if (!this.d) return
-    this.out.push(`<path d="${this.d}" fill="none" stroke="${this.s.strokeStyle}" stroke-width="${n(this.s.lineWidth * this.scale())}" stroke-linejoin="${this.s.lineJoin}" stroke-linecap="${this.s.lineCap}"${this.alpha()}/>`)
+    this.out.push(`<path d="${this.d}" fill="none" stroke="${this.paint(this.s.strokeStyle)}" stroke-width="${n(this.s.lineWidth * this.unit())}" stroke-linejoin="${this.s.lineJoin}" stroke-linecap="${this.s.lineCap}"${this.alpha()}/>`)
   }
   fillRect(x: number, y: number, w: number, h: number) {
-    this.out.push(`<path d="M${this.tp(x, y)}L${this.tp(x + w, y)}L${this.tp(x + w, y + h)}L${this.tp(x, y + h)}Z" fill="${this.s.fillStyle}"${this.alpha()}/>`)
+    this.out.push(`<path d="M${this.tp(x, y)}L${this.tp(x + w, y)}L${this.tp(x + w, y + h)}L${this.tp(x, y + h)}Z" fill="${this.paint(this.s.fillStyle)}"${this.alpha()}/>`)
   }
   measureText(t: string) {
     this.measurer.font = this.s.font
     return this.measurer.measureText(t)
   }
-  private text(t: string, x: number, y: number, paint: string) {
+  private text(t: string, x: number, y: number, style: Style, extra: string) {
     const m = /^(italic\s+)?(\d+)\s+([\d.]+)px\s+(.+)$/.exec(this.s.font.trim())
     const italic = !!m?.[1]
     const weight = m?.[2] ?? '400'
     const size = parseFloat(m?.[3] ?? '10')
     const family = (m?.[4] ?? 'sans-serif').replace(/"/g, '')
     const met = this.measureText(t)
-    const font = this.fonts && (/condensed/i.test(family) ? this.fonts.ec800 : +weight >= 800 ? this.fonts.s800 : /saira/i.test(family) ? this.fonts.s700 : null)
+    const font = this.fonts?.get(`${family}|${weight}`) ?? null
     const width = font ? font.getAdvanceWidth(t, size) : met.width
     let bx = x
     if (this.s.textAlign === 'center') bx = x - width / 2
@@ -157,6 +207,9 @@ class SvgRecorder {
     if (this.s.textBaseline === 'middle') by = y + (met.actualBoundingBoxAscent - met.actualBoundingBoxDescent) / 2
     else if (this.s.textBaseline === 'top') by = y + met.actualBoundingBoxAscent
     const at = mul(this.s.m, [1, 0, 0, 1, bx, by])
+    // Gradients were made in the painter's space; the element's own space is
+    // shifted by the baseline origin.
+    const paint = `${style === 'none' ? 'fill="none"' : `fill="${this.paint(style, [1, 0, 0, 1, -bx, -by])}"`} ${extra}`
     if (font) {
       // Outlined lettering: no font needed on the print machine.
       const d = font.getPath(t, 0, 0, size).toPathData(3)
@@ -168,20 +221,21 @@ class SvgRecorder {
       `<text transform="${mstr(at)}" font-family="'${esc(family)}'" font-weight="${weight}"${italic ? ' font-style="italic"' : ''} font-size="${n(size)}" ${paint}${this.alpha()}>${esc(t)}</text>`,
     )
   }
-  fillText(t: string, x: number, y: number) { this.text(t, x, y, `fill="${this.s.fillStyle}"`) }
+  fillText(t: string, x: number, y: number) { this.text(t, x, y, this.s.fillStyle, '') }
   strokeText(t: string, x: number, y: number) {
-    this.text(t, x, y, `fill="none" stroke="${this.s.strokeStyle}" stroke-width="${n(this.s.lineWidth)}" stroke-linejoin="${this.s.lineJoin}"`)
+    const stroke = typeof this.s.strokeStyle === 'string' ? this.s.strokeStyle : this.paint(this.s.strokeStyle)
+    this.text(t, x, y, 'none', `stroke="${stroke}" stroke-width="${n(this.s.lineWidth)}" stroke-linejoin="${this.s.lineJoin}"`)
   }
   drawImage(img: HTMLImageElement, x: number, y: number, w: number, h: number) {
     this.out.push(`<image href="${esc(img.src)}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" preserveAspectRatio="none" transform="${mstr(this.s.m)}"${this.alpha()}/>`)
   }
 }
 
-function record(f: Fonts | null, width: number, height: number, paint: (c: HTMLCanvasElement) => void) {
+function record(f: Fonts, width: number, height: number, paint: (c: HTMLCanvasElement) => void) {
   const rec = new SvgRecorder(f)
   const fake = { width, height, getContext: () => rec }
   paint(fake as unknown as HTMLCanvasElement)
-  return rec.out.join('\n')
+  return (rec.defs.length ? `<defs>${rec.defs.join('')}</defs>\n` : '') + rec.out.join('\n')
 }
 
 const SHEET_W = 2048

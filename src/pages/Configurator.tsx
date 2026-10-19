@@ -2,10 +2,14 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Contours, Header } from '../components/Chrome'
+import ColorField from '../components/ColorField'
+import GraphicsStep from '../components/GraphicsStep'
 import Icon from '../components/Icon'
+import { paintCss } from '../lib/paint'
 import { AnimatedNumber, LazyStage, ProofCanvas } from '../components/bits'
 import { BIKES, MAKES, bikeById, typeLabel, type Make } from '../data/bikes'
-import { DESIGNS, LOGO_SLOTS, NUMBER_FONTS, SWATCHES, designById, swatchName, type LogoSlot, type NumberFont, type Palette } from '../data/designs'
+import { DESIGNS, LOGO_SLOTS, designById, swatchName, type LogoSlot, type Palette } from '../data/designs'
+import { FONTS as NUMBER_FONTS, type FontId as NumberFont } from '../data/fonts'
 import {
   EXTRAS,
   FINISHES,
@@ -26,7 +30,7 @@ import { ensureAssets, loadImage } from '../lib/graphics'
 import { STEPS, priceInput, useConfig, type KitConfig, type PlasticsId } from '../store/config'
 import type { StageApi, View } from '../three/Stage'
 
-const STEP_VIEW: View[] = ['three-quarter', 'right', 'three-quarter', 'plate', 'right', 'three-quarter', 'three-quarter']
+const STEP_VIEW: View[] = ['three-quarter', 'right', 'three-quarter', 'right', 'plate', 'right', 'three-quarter', 'three-quarter']
 const VIEW_BUTTONS: [View, string][] = [
   ['three-quarter', '3/4'],
   ['right', 'Right'],
@@ -163,10 +167,11 @@ export default function Configurator() {
                 {step === 0 && <BikeStep />}
                 {step === 1 && <DesignStep />}
                 {step === 2 && <ColourStep />}
-                {step === 3 && <RiderStep />}
-                {step === 4 && <LogoStep />}
-                {step === 5 && <ExtrasStep />}
-                {step === 6 && <ReviewStep onToast={setToast} onShare={share} />}
+                {step === 3 && <GraphicsStep />}
+                {step === 4 && <RiderStep />}
+                {step === 5 && <LogoStep />}
+                {step === 6 && <ExtrasStep />}
+                {step === 7 && <ReviewStep onToast={setToast} onShare={share} />}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -294,18 +299,6 @@ function DesignStep() {
   )
 }
 
-function SwatchPicker({ value, onPick, label }: { value: string; onPick: (hex: string) => void; label: string }) {
-  return (
-    <div className="swatch-row" role="group" aria-label={label}>
-      {SWATCHES.map((s) => (
-        <button key={s.hex} className="swatch" style={{ background: s.hex, color: s.hex }} aria-pressed={value === s.hex} aria-label={`${s.name}${s.neon ? ' (neon)' : ''}`} title={s.name} onClick={() => onPick(s.hex)}>
-          {s.neon && <span className="neon" aria-hidden="true" />}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 function ColourStep() {
   const { config, setColor, chooseDesign } = useConfig()
   const [open, setOpen] = useState<keyof Palette | null>('primary')
@@ -317,12 +310,12 @@ function ColourStep() {
   ]
   return (
     <>
-      <StepHead title="Colours" lead="Tap a zone, then pick a colour. The bike updates instantly." />
+      <StepHead title="Colours" lead="Tap a zone, then pick a colour, type any hex code or make a gradient. The bike updates instantly." />
       <div className="group">
         {zones.map(([key, label, help]) => (
           <div className="zone" key={key}>
             <button className="zone-head" aria-expanded={open === key} onClick={() => setOpen(open === key ? null : key)}>
-              <span className="sw" style={{ background: config.colors[key] }} aria-hidden="true" />
+              <span className="sw" style={{ background: paintCss(config.colors[key]) }} aria-hidden="true" />
               <span>
                 <b>{label}</b>
                 <small>
@@ -335,7 +328,7 @@ function ColourStep() {
               {open === key && (
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25 }} style={{ overflow: 'hidden' }}>
                   <div className="swatches">
-                    <SwatchPicker value={config.colors[key]} onPick={(hex) => setColor(key, hex)} label={`${label} colour`} />
+                    <ColorField value={config.colors[key]} onChange={(p) => setColor(key, p)} label={`${label} colour`} />
                   </div>
                 </motion.div>
               )}
@@ -392,7 +385,7 @@ function RiderStep() {
         </div>
       </div>
       <div className="group">
-        <div className="group-label">Number font</div>
+        <div className="group-label">Number & name font</div>
         <div className="chips">
           {(Object.keys(NUMBER_FONTS) as NumberFont[]).map((f) => (
             <button key={f} className="chip" aria-pressed={r.font === f} onClick={() => setRider({ font: f })} style={{ font: NUMBER_FONTS[f].css(20) }}>
@@ -405,19 +398,19 @@ function RiderStep() {
         <div className="group-label">
           Plate background <span>{swatchName(r.plateColor)}</span>
         </div>
-        <SwatchPicker value={r.plateColor} onPick={(hex) => setRider({ plateColor: hex })} label="Plate background colour" />
+        <ColorField value={r.plateColor} onChange={(p) => setRider({ plateColor: p })} label="Plate background colour" />
       </div>
       <div className="group">
         <div className="group-label">
           Number colour <span>{swatchName(r.numberColor)}</span>
         </div>
-        <SwatchPicker value={r.numberColor} onPick={(hex) => setRider({ numberColor: hex })} label="Number colour" />
+        <ColorField value={r.numberColor} onChange={(p) => setRider({ numberColor: p })} label="Number colour" />
       </div>
       <div className="group">
         <div className="group-label">
           Name colour <span>{swatchName(r.nameColor)}</span>
         </div>
-        <SwatchPicker value={r.nameColor} onPick={(hex) => setRider({ nameColor: hex })} label="Name colour" />
+        <ColorField value={r.nameColor} onChange={(p) => setRider({ nameColor: p })} label="Name colour" />
       </div>
       <div className="group">
         <button className="toggle" role="switch" aria-checked={config.makeLettering} onClick={() => set({ makeLettering: !config.makeLettering })}>
@@ -644,23 +637,35 @@ function ReviewStep({ onToast, onShare }: { onToast: (s: string) => void; onShar
     setBusy(true)
     setError(null)
     try {
-      const { logos, ...rest } = config
-      // Upload logos one by one first (keeps each request small).
+      const { logos, layers, ...rest } = config
+      // Upload logos and photos one by one first (keeps each request small).
+      const upload = async (dataUrl: string, name: string) => {
+        const up = await fetch('/api/logo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl }) })
+        if (up.status === 404 || up.status === 405 || !up.headers.get('content-type')?.includes('json')) return null
+        const j = await up.json()
+        if (!up.ok) throw new Error(`${name}: ${j.error ?? 'upload failed'}`)
+        return j.path as string
+      }
       const stored: { name: string; slot: string; path: string }[] = []
       for (const l of logos) {
-        const up = await fetch('/api/logo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: l.src }) })
-        if (up.status === 404 || up.status === 405 || !up.headers.get('content-type')?.includes('json')) {
-          setDemo(true)
-          return
+        const path = await upload(l.src, l.name)
+        if (!path) return setDemo(true)
+        stored.push({ name: l.name, slot: l.slot, path })
+      }
+      const storedLayers = []
+      for (const l of layers) {
+        if (l.kind !== 'image' || !l.src) {
+          storedLayers.push(l)
+          continue
         }
-        const j = await up.json()
-        if (!up.ok) throw new Error(`${l.name}: ${j.error ?? 'upload failed'}`)
-        stored.push({ name: l.name, slot: l.slot, path: j.path })
+        const path = await upload(l.src, l.name ?? 'Photo')
+        if (!path) return setDemo(true)
+        storedLayers.push({ ...l, src: undefined, path })
       }
       const res = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: rest, logos: stored, share: encodeConfig(config) }),
+        body: JSON.stringify({ config: { ...rest, layers: storedLayers }, logos: stored, share: encodeConfig(config) }),
       })
       if (res.status === 404 || res.status === 405 || !res.headers.get('content-type')?.includes('json')) {
         setDemo(true)

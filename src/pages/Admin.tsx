@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import AppLink from '../components/AppLink'
 import { Header } from '../components/Chrome'
 import Icon from '../components/Icon'
 import ModelEditor from '../components/ModelEditor'
@@ -397,7 +397,7 @@ interface Order {
   sessionId?: string
   paymentStatus?: string
   customer?: { name?: string; email?: string; phone?: string }
-  config: Omit<KitConfig, 'logos'> & { logos: { name: string; slot: LogoSlot; path: string }[] }
+  config: Omit<KitConfig, 'logos' | 'layers'> & { logos: { name: string; slot: LogoSlot; path: string }[]; layers?: (KitConfig['layers'][number] & { path?: string })[] }
   total: number
 }
 
@@ -440,7 +440,15 @@ function Orders({ pw, mode }: { pw: string; mode: Mode }) {
           return { id: String(i), name: l.name, slot: l.slot, src: await blobToDataUrl(await r.blob()) }
         }),
       )
-      const cfg: KitConfig = { ...defaultConfig(), ...o.config, logos }
+      // Customer photos are stored separately; bring them back into the design.
+      const layers = await Promise.all(
+        (o.config.layers ?? []).map(async ({ path, ...l }) => {
+          if (!path) return l
+          const r = await api(`/api/admin?op=file&path=${encodeURIComponent(path)}`, pw)
+          return { ...l, src: await blobToDataUrl(await r.blob()) }
+        }),
+      )
+      const cfg: KitConfig = { ...defaultConfig(), ...o.config, logos, layers }
       const file = await fileFor(cfg)
       downloadText(file.svg, `${o.id}-${file.fileName}`)
     } finally {
@@ -506,9 +514,9 @@ function Orders({ pw, mode }: { pw: string; mode: Mode }) {
                 <button className="btn btn-primary btn-sm" onClick={() => printOrder(o)} disabled={working === o.id} aria-busy={working === o.id}>
                   <Icon name="download" size={16} /> {working === o.id ? 'Building…' : 'Print file'}
                 </button>
-                <Link className="btn btn-ghost btn-sm" to={`/configurator?d=${encodeConfig({ ...defaultConfig(), ...o.config, logos: [] })}`} target="_blank">
+                <AppLink className="btn btn-ghost btn-sm" to={`/configurator?d=${encodeConfig({ ...defaultConfig(), ...o.config, logos: [], layers: (o.config.layers ?? []).filter((l) => !l.path) })}`} target="_blank">
                   Open design
-                </Link>
+                </AppLink>
               </div>
             </li>
           )

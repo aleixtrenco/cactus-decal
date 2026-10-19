@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Link } from 'react-router-dom'
+import AppLink from '../components/AppLink'
 import { Footer, Header } from '../components/Chrome'
 import Icon from '../components/Icon'
 import { CONTACT } from '../data/site'
@@ -31,9 +31,9 @@ export default function Result({ ok }: { ok: boolean }) {
               ? `Thanks for your order. We'll send your final proof by email and WhatsApp within one working day. Questions? Message us on ${CONTACT.whatsapp}.`
               : 'Your design is still saved in this browser tab. Head back to the configurator to finish your order whenever you are ready.'}
           </p>
-          <Link to={ok ? '/' : '/configurator'} className="btn btn-primary">
+          <AppLink to={ok ? '/' : '/configurator'} className="btn btn-primary">
             {ok ? 'Back to home' : 'Back to my design'} <Icon name="arrow" size={18} />
-          </Link>
+          </AppLink>
         </motion.div>
       </main>
       <Footer />

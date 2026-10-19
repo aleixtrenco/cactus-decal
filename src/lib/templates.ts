@@ -68,17 +68,18 @@ export interface ModelSetup {
 // stored as base64 text and turned back into a file in the browser.
 const resolved = new Map<string, Promise<string>>()
 export function resolveModel(u: string): Promise<string> {
+  // Promises are cached so React's use() sees the same one on every render.
+  let p = resolved.get(u)
+  if (p) return p
   const local = u.startsWith('/') && !u.startsWith('//')
-  if (!local) return Promise.resolve(u)
-  const url = import.meta.env.BASE_URL + u.slice(1)
-  if (!import.meta.env.VITE_HASH_ROUTER) return Promise.resolve(url)
-  let p = resolved.get(url)
-  if (!p) {
-    p = fetch(url + '.b64.txt')
-      .then((r) => r.text())
-      .then((b64) => URL.createObjectURL(new Blob([Uint8Array.from(atob(b64.trim()), (c) => c.charCodeAt(0))], { type: 'model/gltf-binary' })))
-    resolved.set(url, p)
-  }
+  const url = local ? import.meta.env.BASE_URL + u.slice(1) : u
+  p =
+    local && import.meta.env.VITE_HASH_ROUTER
+      ? fetch(url + '.b64.txt')
+          .then((r) => r.text())
+          .then((b64) => URL.createObjectURL(new Blob([Uint8Array.from(atob(b64.trim()), (c) => c.charCodeAt(0))], { type: 'model/gltf-binary' })))
+      : Promise.resolve(url)
+  resolved.set(u, p)
   return p
 }
 

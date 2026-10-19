@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
+import AppLink from './AppLink'
 import { CONTACT } from '../data/site'
 import Icon from './Icon'
 
@@ -60,10 +61,10 @@ export function Header({ solid = false }: { solid?: boolean }) {
   return (
     <header className={`header ${scrolled ? 'scrolled' : ''} ${solid ? 'solid' : ''}`}>
       <div className="container">
-        <Link to="/" className="brand" aria-label="Cactus Decal Lab home">
+        <AppLink to="/" className="brand" aria-label="Cactus Decal Lab home">
           <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" width={56} height={56} />
           <span>Cactus Decal Lab</span>
-        </Link>
+        </AppLink>
         <nav className="nav" aria-label="Main">
           {LINKS.map(([label, id]) => (
             <SectionLink key={id} id={id}>
@@ -71,9 +72,9 @@ export function Header({ solid = false }: { solid?: boolean }) {
             </SectionLink>
           ))}
         </nav>
-        <Link to="/configurator" className="btn btn-primary btn-sm">
+        <AppLink to="/configurator" className="btn btn-primary btn-sm">
           Design your kit <Icon name="arrow" size={18} />
-        </Link>
+        </AppLink>
         <button className="icon-btn menu-btn" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen(true)}>
           <Icon name="menu" />
         </button>
@@ -100,9 +101,9 @@ export function Header({ solid = false }: { solid?: boolean }) {
                 </SectionLink>
               </motion.div>
             ))}
-            <Link to="/configurator" className="btn btn-primary" style={{ marginTop: 24 }} onClick={() => setOpen(false)}>
+            <AppLink to="/configurator" className="btn btn-primary" style={{ marginTop: 24 }} onClick={() => setOpen(false)}>
               Design your kit <Icon name="arrow" size={18} />
-            </Link>
+            </AppLink>
           </motion.div>
         )}
       </AnimatePresence>
@@ -116,10 +117,10 @@ export function Footer() {
       <div className="container">
         <div className="footer-grid">
           <div>
-            <Link to="/" className="brand" aria-label="Cactus Decal Lab home">
+            <AppLink to="/" className="brand" aria-label="Cactus Decal Lab home">
               <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" width={56} height={56} />
               <span>Cactus Decal Lab</span>
-            </Link>
+            </AppLink>
             <p style={{ color: 'var(--muted)', marginTop: 12, maxWidth: '36ch' }}>
               Custom off-road graphics, designed by you and printed in Dubai.
             </p>
@@ -140,7 +141,7 @@ export function Footer() {
             <h4>Explore</h4>
             <ul>
               <li>
-                <Link to="/configurator">3D configurator</Link>
+                <AppLink to="/configurator">3D configurator</AppLink>
               </li>
               {LINKS.map(([label, id]) => (
                 <li key={id}>

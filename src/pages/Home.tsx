@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import AppLink from '../components/AppLink'
 import { CactusSpines, Contours, Footer, Header } from '../components/Chrome'
 import Icon, { type IconName } from '../components/Icon'
 import { designPreview, LazyStage, ProofCanvas, Reveal } from '../components/bits'
@@ -61,9 +61,9 @@ function Hero() {
               change land in real time. We print it in Dubai and ship across the UAE.
             </p>
             <div className="hero-ctas">
-              <Link to="/configurator" className="btn btn-primary">
+              <AppLink to="/configurator" className="btn btn-primary">
                 Start designing <Icon name="arrow" size={18} />
-              </Link>
+              </AppLink>
               <a
                 href="#designs"
                 className="btn btn-ghost"
@@ -206,7 +206,7 @@ export default function Home() {
             <div className="designs">
               {DESIGNS.map((d, i) => (
                 <Reveal key={d.id} delay={(i % 4) * 0.06}>
-                  <Link to={`/configurator?design=${d.id}`} className="design-card">
+                  <AppLink to={`/configurator?design=${d.id}`} className="design-card">
                     <div className="thumb">
                       <ProofCanvas cfg={designPreview(d.id)} width={560} label={`${d.name} design preview`} />
                     </div>
@@ -219,7 +219,7 @@ export default function Home() {
                         <Icon name="arrow" size={18} />
                       </span>
                     </div>
-                  </Link>
+                  </AppLink>
                 </Reveal>
               ))}
             </div>
@@ -260,9 +260,9 @@ export default function Home() {
                 ))}
               </ul>
               <Reveal>
-                <Link to="/configurator" className="btn btn-primary" style={{ marginTop: 32 }}>
+                <AppLink to="/configurator" className="btn btn-primary" style={{ marginTop: 32 }}>
                   Open the configurator <Icon name="arrow" size={18} />
-                </Link>
+                </AppLink>
               </Reveal>
             </div>
           </div>
@@ -348,9 +348,9 @@ export default function Home() {
                 <br />
                 Your colours.
               </h2>
-              <Link to="/configurator" className="btn btn-primary">
+              <AppLink to="/configurator" className="btn btn-primary">
                 Build your kit now <Icon name="arrow" size={18} />
-              </Link>
+              </AppLink>
             </div>
           </Reveal>
         </section>

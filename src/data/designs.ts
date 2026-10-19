@@ -1,3 +1,4 @@
+import { parsePaint } from '../lib/paint.js'
 export type DesignId = 'dune' | 'saguaro' | 'shamal' | 'falcon' | 'hex' | 'mirage' | 'camo' | 'clean'
 
 export interface Palette {
@@ -61,14 +62,12 @@ export const SWATCHES: Swatch[] = [
 ]
 
 export const NEON_HEXES = new Set(SWATCHES.filter((s) => s.neon).map((s) => s.hex))
-export const swatchName = (hex: string) => SWATCHES.find((s) => s.hex === hex)?.name ?? hex
-
-export type NumberFont = 'block' | 'italic' | 'wide'
-export const NUMBER_FONTS: Record<NumberFont, { label: string; css: (px: number) => string }> = {
-  block: { label: 'Block', css: (px) => `800 ${px}px "Saira Extra Condensed"` },
-  italic: { label: 'Race italic', css: (px) => `italic 800 ${px}px "Saira Extra Condensed"` },
-  wide: { label: 'Wide', css: (px) => `800 ${px}px "Saira"` },
+export const swatchName = (paint: string) => {
+  const q = parsePaint(paint)
+  const name = (hex: string) => SWATCHES.find((s) => s.hex.toLowerCase() === hex.toLowerCase())?.name ?? hex.toUpperCase()
+  return q.kind === 'solid' ? name(q.hex) : `${name(q.a)} → ${name(q.b)}`
 }
+
 
 export type LogoSlot = 'shroud-top' | 'shroud-low' | 'plate-top' | 'fender'
 // Logo positions, relative to a panel's bounding box (0–1, y measured up),

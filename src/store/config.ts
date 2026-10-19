@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { bikeById, makeInfo } from '../data/bikes'
-import { designById, NEON_HEXES, type DesignId, type LogoSlot, type NumberFont, type Palette } from '../data/designs'
+import { designById, NEON_HEXES, type DesignId, type LogoSlot, type Palette } from '../data/designs'
+import type { FontId, FontId as NumberFont } from '../data/fonts'
+import { paintColors, type Paint } from '../lib/paint'
 import type { ExtraId, FinishId, KitId, MaterialId, PriceInput } from '../data/pricing'
 
 export type PlasticsId = 'oem' | 'white' | 'black'
@@ -12,6 +14,32 @@ export interface Logo {
   slot: LogoSlot
 }
 
+export type ShapeId = 'stripe' | 'twin' | 'chevron' | 'slash' | 'star' | 'circle' | 'triangle' | 'flame' | 'bolt' | 'checker' | 'cactus'
+export type LayerPanel = 'shroud' | 'sidePlate' | 'rearFender' | 'kit'
+
+// Something the customer added on top of the design: a shape, a line of
+// text or an image. Position (x, y) is 0–1 across the panel; size is the
+// height as a share of the panel's height; rotation in degrees.
+export interface Layer {
+  id: string
+  kind: 'shape' | 'text' | 'image'
+  panel: LayerPanel
+  x: number
+  y: number
+  size: number
+  rotation: number
+  opacity: number
+  fill: Paint
+  outline?: string
+  shape?: ShapeId
+  text?: string
+  font?: FontId
+  src?: string
+  name?: string
+  // Image only: stretch over the whole kit as the background.
+  cover?: boolean
+}
+
 export interface KitConfig {
   bikeId: string
   designId: DesignId
@@ -20,6 +48,7 @@ export interface KitConfig {
   rider: { name: string; number: string; font: NumberFont; numberColor: string; plateColor: string; nameColor: string }
   makeLettering: boolean
   logos: Logo[]
+  layers: Layer[]
   kit: KitId
   finish: FinishId
   material: MaterialId
@@ -38,6 +67,7 @@ export const defaultConfig = (): KitConfig => {
     rider: { name: 'CACTUS', number: '27', font: 'italic', numberColor: '#101010', plateColor: '#e9c88f', nameColor: '#f4f4f2' },
     makeLettering: true,
     logos: [],
+    layers: [],
     kit: 'full',
     finish: 'gloss',
     material: 'standard',
@@ -50,7 +80,7 @@ export const plasticsHex = (c: KitConfig) =>
   c.plastics === 'white' ? '#f4f4f2' : c.plastics === 'black' ? '#141414' : makeInfo(bikeById(c.bikeId).make).oem
 
 export const usesNeon = (c: KitConfig) =>
-  [...Object.values(c.colors), c.rider.numberColor, c.rider.plateColor, c.rider.nameColor].some((h) => NEON_HEXES.has(h))
+  [...Object.values(c.colors), c.rider.numberColor, c.rider.plateColor, c.rider.nameColor, ...c.layers.map((l) => l.fill)].flatMap(paintColors).some((h) => NEON_HEXES.has(h))
 
 export const priceInput = (c: KitConfig): PriceInput => ({
   bikeType: bikeById(c.bikeId).type,
@@ -60,7 +90,7 @@ export const priceInput = (c: KitConfig): PriceInput => ({
   usesNeon: usesNeon(c),
 })
 
-export const STEPS = ['Bike', 'Design', 'Colours', 'Rider', 'Logos', 'Extras', 'Review'] as const
+export const STEPS = ['Bike', 'Design', 'Colours', 'Graphics', 'Rider', 'Logos', 'Extras', 'Review'] as const
 export type Step = (typeof STEPS)[number]
 
 interface Store {
@@ -74,6 +104,10 @@ interface Store {
   addLogo: (logo: Logo) => void
   updateLogo: (id: string, patch: Partial<Logo>) => void
   removeLogo: (id: string) => void
+  addLayer: (layer: Layer) => void
+  updateLayer: (id: string, patch: Partial<Layer>) => void
+  removeLayer: (id: string) => void
+  moveLayer: (id: string, by: number) => void
   setStep: (n: number) => void
   load: (c: KitConfig) => void
 }
@@ -94,6 +128,19 @@ export const useConfig = create<Store>((set) => ({
   updateLogo: (id, patch) =>
     set((s) => ({ config: { ...s.config, logos: s.config.logos.map((l) => (l.id === id ? { ...l, ...patch } : l)) } })),
   removeLogo: (id) => set((s) => ({ config: { ...s.config, logos: s.config.logos.filter((l) => l.id !== id) } })),
+  addLayer: (layer) => set((s) => ({ config: { ...s.config, layers: [...s.config.layers, layer] } })),
+  updateLayer: (id, patch) =>
+    set((s) => ({ config: { ...s.config, layers: s.config.layers.map((l) => (l.id === id ? { ...l, ...patch } : l)) } })),
+  removeLayer: (id) => set((s) => ({ config: { ...s.config, layers: s.config.layers.filter((l) => l.id !== id) } })),
+  moveLayer: (id, by) =>
+    set((s) => {
+      const ls = [...s.config.layers]
+      const i = ls.findIndex((l) => l.id === id)
+      const j = Math.max(0, Math.min(ls.length - 1, i + by))
+      if (i < 0 || i === j) return s
+      ;[ls[i], ls[j]] = [ls[j], ls[i]]
+      return { config: { ...s.config, layers: ls } }
+    }),
   setStep: (n) => set({ step: n }),
   load: (c) => set({ config: c }),
 }))

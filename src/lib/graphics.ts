@@ -4,8 +4,11 @@
 // mirrored (front on the left) with text kept readable.
 
 import { bikeById, makeInfo } from '../data/bikes'
-import { LOGO_SLOTS, NUMBER_FONTS, TEXT_PLACEMENTS, type Palette, type Placement } from '../data/designs'
-import type { KitConfig } from '../store/config'
+import { LOGO_SLOTS, TEXT_PLACEMENTS, type Palette, type Placement } from '../data/designs'
+import { FONTS, fontById, loadFontFaces } from '../data/fonts'
+import type { KitConfig, Layer } from '../store/config'
+import { firstColor, paintStyle, type Box } from './paint'
+import { SHAPES } from './shapes2d'
 import { tracePath, type Seg } from './shapes'
 import { panelsFor, type PanelSet } from './templates'
 
@@ -43,7 +46,8 @@ function rng(seed: number) {
   }
 }
 
-type Painter = (ctx: CanvasRenderingContext2D, c: Palette) => void
+type Fill = string | CanvasGradient
+type Painter = (ctx: CanvasRenderingContext2D, c: Record<keyof Palette, Fill>) => void
 
 const { x0, x1, y0, y1 } = WORLD
 
@@ -78,7 +82,7 @@ const PATTERNS: Record<string, Painter> = {
     ctx.fillRect(x0, y0, WW, WH)
     for (let i = 0; i < 26; i++) {
       const x = x0 + i * 0.1
-      ctx.fillStyle = i % 2 ? c.primary : shade(c.primary, -0.25)
+      ctx.fillStyle = c.primary
       ctx.beginPath()
       ctx.moveTo(x, y0)
       ctx.lineTo(x + 0.05, y0)
@@ -86,6 +90,13 @@ const PATTERNS: Record<string, Painter> = {
       ctx.lineTo(x + 0.06, y1)
       ctx.closePath()
       ctx.fill()
+      if (i % 2 === 0) {
+        // Darker alternate ribs.
+        ctx.globalAlpha = 0.25
+        ctx.fillStyle = '#000000'
+        ctx.fill()
+        ctx.globalAlpha = 1
+      }
       ctx.strokeStyle = c.accent
       ctx.lineWidth = 0.004
       for (let y = y0 + 0.04; y < y1; y += 0.07) {
@@ -263,18 +274,9 @@ const PATTERNS: Record<string, Painter> = {
   },
 }
 
-function shade(hex: string, amt: number) {
-  const n = parseInt(hex.slice(1), 16)
-  const f = (v: number) => Math.max(0, Math.min(255, Math.round(v + 255 * amt)))
-  const r = f((n >> 16) & 255)
-  const g = f((n >> 8) & 255)
-  const b = f(n & 255)
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`
-}
-
 // Picks black or white outline so lettering stays readable on any colour.
-function outlineFor(hex: string) {
-  const n = parseInt(hex.slice(1), 16)
+function outlineFor(paint: string) {
+  const n = parseInt(firstColor(paint).slice(1), 16)
   const l = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)
   return l > 150 ? '#101010' : '#f4f4f2'
 }
@@ -302,7 +304,8 @@ function drawText(
   if (!text) return
   const { px, py, scale } = toPx(at.x, at.y, side, W, H)
   ctx.setTransform(1, 0, 0, 1, 0, 0)
-  fitText(ctx, text, font, at.w * scale, at.h * scale)
+  const size = fitText(ctx, text, font, at.w * scale, at.h * scale)
+  const tw = ctx.measureText(text).width
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   if (outline) {
@@ -311,7 +314,7 @@ function drawText(
     ctx.strokeStyle = outline
     ctx.strokeText(text, px, py)
   }
-  ctx.fillStyle = fill
+  ctx.fillStyle = paintStyle(ctx, fill, { x: px - tw / 2, y: py - size / 2, w: tw, h: size })
   ctx.fillText(text, px, py)
 }
 
@@ -366,7 +369,13 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
 
   ctx.save()
   worldTransform(ctx, side, W, H)
-  PATTERNS[cfg.designId](ctx, cfg.colors)
+  const sheetBox = { x: x0, y: y0, w: WW, h: WH }
+  const c = cfg.colors
+  const fills = { base: paintStyle(ctx, c.base, sheetBox), primary: paintStyle(ctx, c.primary, sheetBox), secondary: paintStyle(ctx, c.secondary, sheetBox), accent: paintStyle(ctx, c.accent, sheetBox) }
+  PATTERNS[cfg.designId](ctx, fills)
+  // Customer photos used as the whole background go straight over the pattern.
+  for (const l of cfg.layers) if (l.kind === 'image' && l.cover) drawCover(ctx, l, W, H)
+  worldTransform(ctx, side, W, H)
   if (!lettering) {
     ctx.restore()
     ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -374,8 +383,9 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
   }
 
   // Solid number background on the side plate.
-  ctx.fillStyle = cfg.rider.plateColor
-  ctx.strokeStyle = cfg.colors.accent
+  const plateBox = anchorBoxOf(panels.sidePlate)
+  ctx.fillStyle = paintStyle(ctx, cfg.rider.plateColor, plateBox)
+  ctx.strokeStyle = fills.accent
   ctx.lineWidth = 0.012
   for (const seg of panels.sidePlate) {
     ctx.beginPath()
@@ -386,12 +396,14 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
   }
   ctx.restore()
 
-  const font = NUMBER_FONTS[cfg.rider.font].css
+  for (const l of cfg.layers) if (!(l.kind === 'image' && l.cover)) drawLayer(ctx, l, panels, side, W, H)
+
+  const font = fontById(cfg.rider.font).css
   const T = TEXT_PLACEMENTS
   drawText(ctx, cfg.rider.number, place(T.number, panels), side, W, H, font, cfg.rider.numberColor, outlineFor(cfg.rider.numberColor) === '#101010' ? '#101010' : undefined)
-  drawText(ctx, cfg.rider.name.toUpperCase(), place(T.name, panels), side, W, H, NUMBER_FONTS.italic.css, cfg.rider.nameColor, outlineFor(cfg.rider.nameColor))
+  drawText(ctx, cfg.rider.name.toUpperCase(), place(T.name, panels), side, W, H, font, cfg.rider.nameColor, outlineFor(cfg.rider.nameColor))
   if (cfg.makeLettering) {
-    drawText(ctx, make.make.toUpperCase(), place(T.make, panels), side, W, H, NUMBER_FONTS.italic.css, cfg.colors.accent, outlineFor(cfg.colors.accent))
+    drawText(ctx, make.make.toUpperCase(), place(T.make, panels), side, W, H, FONTS.italic.css, cfg.colors.accent, outlineFor(cfg.colors.accent))
   }
   drawText(ctx, 'CACTUS DECAL LAB', place(T.tag, panels), side, W, H, (px) => `700 ${px}px "Saira"`, outlineFor(cfg.colors.base) === '#101010' ? '#101010' : '#f4f4f2')
 
@@ -415,29 +427,112 @@ export function paintFrontPlate(canvas: HTMLCanvasElement, cfg: KitConfig) {
   const S = canvas.width
   const ctx = canvas.getContext('2d')!
   ctx.setTransform(1, 0, 0, 1, 0, 0)
-  ctx.fillStyle = cfg.rider.plateColor
+  const all = { x: 0, y: 0, w: S, h: S }
+  ctx.fillStyle = paintStyle(ctx, cfg.rider.plateColor, all)
   ctx.fillRect(0, 0, S, S)
   // Only the middle band (14%–86%) lands on the plate, see Bike.tsx.
-  ctx.fillStyle = cfg.colors.primary
+  ctx.fillStyle = paintStyle(ctx, cfg.colors.primary, all)
   ctx.fillRect(0, 0, S, S * 0.25)
-  ctx.fillStyle = cfg.colors.accent
+  ctx.fillStyle = paintStyle(ctx, cfg.colors.accent, all)
   ctx.fillRect(0, S * 0.25, S, S * 0.03)
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillStyle = cfg.rider.numberColor
-  fitText(ctx, cfg.rider.number, NUMBER_FONTS[cfg.rider.font].css, S * 0.62, S * 0.38)
+  ctx.fillStyle = paintStyle(ctx, cfg.rider.numberColor, { x: S * 0.19, y: S * 0.34, w: S * 0.62, h: S * 0.38 })
+  fitText(ctx, cfg.rider.number, fontById(cfg.rider.font).css, S * 0.62, S * 0.38)
   ctx.fillText(cfg.rider.number, S / 2, S * 0.53)
-  fitText(ctx, cfg.rider.name.toUpperCase(), NUMBER_FONTS.italic.css, S * 0.5, S * 0.08)
+  fitText(ctx, cfg.rider.name.toUpperCase(), FONTS.italic.css, S * 0.5, S * 0.08)
   ctx.fillText(cfg.rider.name.toUpperCase(), S / 2, S * 0.78)
 }
 
 export async function ensureAssets(cfg: KitConfig) {
   await Promise.all([
-    document.fonts.load(NUMBER_FONTS.block.css(40)),
-    document.fonts.load(NUMBER_FONTS.wide.css(40)),
+    loadFontFaces(['italic', 'block', 'wide', cfg.rider.font, ...cfg.layers.map((l) => l.font)]),
     document.fonts.load('700 40px "Saira"'),
     ...cfg.logos.map((l) => loadImage(l.src).catch(() => null)),
+    ...cfg.layers.filter((l) => l.src).map((l) => loadImage(l.src!).catch(() => null)),
   ])
+}
+
+// ---------- Customer layers ----------
+
+const KIT_BOX = { x0: -1.15, y0: 0.6, x1: 1.05, y1: 1.2 }
+
+const anchorBoxOf = (segs: Seg[][]): Box => {
+  const b = anchorBox(segs)
+  return { x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0 }
+}
+
+// Where a layer sits in world units: its centre and its height.
+export function layerFrame(l: Layer, panels: PanelSet) {
+  const b = l.panel === 'kit' ? KIT_BOX : anchorBox(panels[l.panel])
+  const w = b.x1 - b.x0
+  const h = b.y1 - b.y0
+  return { cx: b.x0 + l.x * w, cy: b.y0 + l.y * h, h: l.size * h, panel: { x: b.x0, y: b.y0, w, h } }
+}
+
+function drawCover(ctx: CanvasRenderingContext2D, l: Layer, W: number, H: number) {
+  const img = l.src ? imageCache.get(l.src) : undefined
+  if (!img?.complete || !img.naturalWidth) return
+  // Cover the area around the plastics, unmirrored so photos read correctly.
+  const k = Math.max(W / img.naturalWidth, H / img.naturalHeight)
+  ctx.save()
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.globalAlpha = l.opacity
+  ctx.drawImage(img, (W - img.naturalWidth * k) / 2, (H - img.naturalHeight * k) / 2, img.naturalWidth * k, img.naturalHeight * k)
+  ctx.restore()
+}
+
+function drawLayer(ctx: CanvasRenderingContext2D, l: Layer, panels: PanelSet, side: Side, W: number, H: number) {
+  const f = layerFrame(l, panels)
+  ctx.save()
+  ctx.globalAlpha = l.opacity
+  if (l.kind === 'shape' && l.shape) {
+    // Shapes live in world space, so the left side mirrors like the pattern.
+    worldTransform(ctx, side, W, H)
+    const s = SHAPES[l.shape]
+    ctx.translate(f.cx, f.cy)
+    ctx.rotate((l.rotation * Math.PI) / 180)
+    ctx.scale(f.h, f.h)
+    ctx.fillStyle = paintStyle(ctx, l.fill, { x: -s.aspect / 2, y: -0.5, w: s.aspect, h: 1 })
+    ctx.beginPath()
+    s.draw(ctx, l.outline ?? '#101010')
+    ctx.fill()
+    if (l.outline && l.shape !== 'checker') {
+      ctx.lineWidth = 0.05
+      ctx.lineJoin = 'round'
+      ctx.strokeStyle = l.outline
+      ctx.stroke()
+    }
+  } else {
+    // Text and images stay readable on both sides: drawn unmirrored, with
+    // the rotation flipped on the left so the layout still mirrors.
+    const { px, py, scale } = toPx(f.cx, f.cy, side, W, H)
+    const hp = f.h * scale
+    ctx.setTransform(1, 0, 0, 1, px, py)
+    ctx.rotate(((side === 'right' ? -1 : 1) * l.rotation * Math.PI) / 180)
+    if (l.kind === 'text' && l.text) {
+      const font = fontById(l.font)
+      ctx.font = font.css(hp)
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      const tw = ctx.measureText(l.text).width
+      if (l.outline) {
+        ctx.lineJoin = 'round'
+        ctx.lineWidth = hp * 0.14
+        ctx.strokeStyle = l.outline
+        ctx.strokeText(l.text, 0, 0)
+      }
+      ctx.fillStyle = paintStyle(ctx, l.fill, { x: -tw / 2, y: -hp / 2, w: tw, h: hp })
+      ctx.fillText(l.text, 0, 0)
+    } else if (l.kind === 'image' && l.src) {
+      const img = imageCache.get(l.src)
+      if (img?.complete && img.naturalWidth) {
+        const wp = (img.naturalWidth / img.naturalHeight) * hp
+        ctx.drawImage(img, -wp / 2, -hp / 2, wp, hp)
+      }
+    }
+  }
+  ctx.restore()
 }
 
 // For real 3D models: the kit artwork with everything outside the printed
