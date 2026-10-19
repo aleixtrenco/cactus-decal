@@ -6,7 +6,7 @@
 import { bikeById, makeInfo } from '../data/bikes'
 import { LOGO_SLOTS, type Palette, type Placement } from '../data/designs'
 import { FONTS, fontById, loadFontFaces, type FontId } from '../data/fonts'
-import { pieceIdOf, type KitConfig, type Layer, type LayerPanel, type RiderText } from '../store/config'
+import { pieceIdOf, type KitConfig, type Layer, type LayerPanel, type RiderPlace, type RiderText } from '../store/config'
 import { firstColor, paintStyle, type Box, type Paint } from './paint'
 import { SHAPES } from './shapes2d'
 import { tracePath, type Seg } from './shapes'
@@ -955,8 +955,12 @@ function numberBox(panels: PanelSet, seen?: SeenArea, side: Side = 'right') {
 // "__number", "__name", "__make"), so they can be moved and resized like any
 // text. Placed automatically (inside the plates and shrouds, on the parts that
 // show) until the customer moves them; then the same on both sides.
-export const riderId = (k: RiderText) => `__${k}`
-export const riderKeyOf = (id: string | null): RiderText | null => (id && /^__(number|name|make)$/.test(id) ? (id.slice(2) as RiderText) : null)
+// Each side of the bike has its own, so they can be adjusted independently.
+export const riderId = (k: RiderText, side: Side = 'right') => `__${k}${side === 'left' ? ':left' : ''}`
+export const riderKeyOf = (id: string | null): RiderText | null => (id && /^__(number|name|make)(:left)?$/.test(id) ? (id.slice(2).replace(':left', '') as RiderText) : null)
+export const riderSideOf = (id: string): Side => (id.endsWith(':left') ? 'left' : 'right')
+// The key in `rider.place` for a lettering layer id.
+export const riderPlaceOf = (id: string) => id.slice(2) as RiderPlace
 
 export function riderLayers(cfg: KitConfig, panels: PanelSet, side: Side = 'right', seen?: SeenArea): Layer[] {
   const out: Layer[] = []
@@ -966,22 +970,15 @@ export function riderLayers(cfg: KitConfig, panels: PanelSet, side: Side = 'righ
     const b = anchorBox(panels[panel])
     const pw = b.x1 - b.x0 || 1
     const ph = b.y1 - b.y0 || 1
-    const base: Layer = { id: riderId(key), kind: 'text', panel, text, font, fill, outline, x: 0.5, y: 0.5, size: 0.2, rotation: 0, opacity: 1 }
+    const base: Layer = { id: riderId(key, side), kind: 'text', panel, text, font, fill, outline, x: 0.5, y: 0.5, size: 0.2, rotation: 0, opacity: 1 }
     // The automatic spot: the text fitted inside the box for that side.
     const spot = (s: Side) => {
       const a = auto(s)
       const h = Math.min(a.h, a.w / layerAspect(base))
       return { x: (a.x - b.x0) / pw, y: (a.y - b.y0) / ph, size: h / ph }
     }
-    const here = spot(side)
-    const at = cfg.rider.place?.[key]
-    if (!at) return out.push({ ...base, ...here })
-    // Moved by the customer (on the right side): the left side moves and
-    // scales the same from its own automatic spot, as its plate can be cut
-    // differently.
-    if (side === 'right') return out.push({ ...base, ...at })
-    const r = spot('right')
-    out.push({ ...base, x: here.x + (at.x - r.x), y: here.y + (at.y - r.y), size: here.size * (at.size / (r.size || 1)), rotation: at.rotation })
+    const at = cfg.rider.place?.[riderPlaceOf(base.id)]
+    out.push({ ...base, ...(at ?? spot(side)) })
   }
   const r = cfg.rider
   add('number', 'sidePlate', r.number, r.font, r.numberColor, outlineFor(r.numberColor) === '#101010' ? '#101010' : undefined, (s) => numberBox(panels, seen, s))

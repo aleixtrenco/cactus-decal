@@ -73,6 +73,9 @@ export interface ModelSetup {
   // Bike types this model may stand in for on other models of the same make
   // (e.g. a motocross model is not shown for trail bikes). Any type if unset.
   types?: BikeType[]
+  // The template piece shown on the front of the model, when it is not the
+  // front plate (e.g. a headlight mask on an enduro model).
+  frontPiece?: number
 }
 
 // Site-relative model paths (bundled models) also work from a sub-folder.

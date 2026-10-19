@@ -278,7 +278,9 @@ const polyD = (pts: [number, number][]) => pts.map(([x, y], i) => `${i ? 'L' : '
 
 // Builds the print file on the template's own artboard: every piece keeps
 // its exact position and cut line, and is filled with its part of the design.
-export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Promise<PrintFile> {
+// `info: false` leaves out the order details under the pieces (for showing
+// the design to the customer).
+export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate, { info: withInfo = true } = {}): Promise<PrintFile> {
   const f = await loadFonts()
   const bike = bikeById(cfg.bikeId)
   const t = template ?? builtInTemplate(cfg)
@@ -391,7 +393,7 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
   ]
   const fs = vw * 0.011
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="${n(vx)} ${n(vy)} ${n(vw)} ${n(vh + fs * 6)}">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="${n(vx)} ${n(vy)} ${n(vw)} ${n(vh + (withInfo ? fs * 6 : 0))}">
 <defs>
 ${defs.join('\n')}
 </defs>
@@ -401,9 +403,7 @@ ${printed.join('\n')}
 <g id="CUT">
 ${cut}
 </g>
-<g id="INFO" font-family="'Saira', Arial, sans-serif" font-size="${n(fs)}" fill="#111">
-${info.map((s, i) => `<text x="${n(vx)}" y="${n(vy + vh + fs * (1.6 + i * 1.3))}">${esc(s)}</text>`).join('\n')}
-</g>
+${withInfo ? `<g id="INFO" font-family="'Saira', Arial, sans-serif" font-size="${n(fs)}" fill="#111">\n${info.map((s, i) => `<text x="${n(vx)}" y="${n(vy + vh + fs * (1.6 + i * 1.3))}">${esc(s)}</text>`).join('\n')}\n</g>` : ''}
 </svg>`
 
   const slug = `${bike.make}-${cfg.rider.number || 'kit'}-${cfg.designId}`.toLowerCase().replace(/[^a-z0-9-]+/g, '-')

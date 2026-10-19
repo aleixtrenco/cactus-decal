@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import { drawPieceLayer, drawUpright, ensureAssets, levelAngle, fillPieceSolid, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFill, pieceFrame, riderKeyOf, riderLayers, sheetWidth, WORLD, type Side } from '../lib/graphics'
+import { drawPieceLayer, drawUpright, ensureAssets, levelAngle, fillPieceSolid, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFill, pieceFrame, riderKeyOf, riderLayers, riderPlaceOf, riderSideOf, sheetWidth, WORLD, type Side } from '../lib/graphics'
 import { useSeen } from '../lib/seen'
 import { apply, builtInTemplate, invert, mul6, panelKey, panelPieces, panelsFor, pieceToWorld, useTemplates, type M6, type Role, type TemplatePiece } from '../lib/templates'
 import { firstColor, paintCss } from '../lib/paint'
@@ -81,6 +81,9 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
   const wrap = useRef<HTMLDivElement>(null)
   const ref = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
+  // Zoom (1 = whole template) and the template point at the centre.
+  const [zoom, setZoom] = useState({ z: 1, cx: 0, cy: 0 })
+  const pan = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null)
   const [view, setView] = useState<View>(() => (typeof window !== 'undefined' && window.innerWidth < 700 ? 'right' : 'both'))
   const drag = useRef<{
     id: string
@@ -145,11 +148,16 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     const padX = size.w * 0.04
     const padTop = interactive ? 76 : 8
     const padBottom = interactive ? 64 : 8
-    const s = Math.min((size.w - padX * 2) / (x1 - x0), (size.h - padTop - padBottom) / (y1 - y0))
-    const ox = (size.w - (x1 - x0) * s) / 2 - x0 * s
-    const oy = padTop + (size.h - padTop - padBottom - (y1 - y0) * s) / 2 - y0 * s
-    return { s, ox, oy, m: [s, 0, 0, s, ox, oy] as M6 }
-  }, [pieces, size, interactive])
+    const base = Math.min((size.w - padX * 2) / (x1 - x0), (size.h - padTop - padBottom) / (y1 - y0))
+    // Zoomed in: around the chosen centre (template units).
+    const z = interactive ? zoom.z : 1
+    const s = base * z
+    const cx = z > 1 ? zoom.cx : (x0 + x1) / 2
+    const cy = z > 1 ? zoom.cy : (y0 + y1) / 2
+    const ox = size.w / 2 - cx * s
+    const oy = padTop + (size.h - padTop - padBottom) / 2 - cy * s
+    return { s, ox, oy, base, box: { x0, y0, x1, y1 }, padTop, padBottom, padX, m: [s, 0, 0, s, ox, oy] as M6 }
+  }, [pieces, size, interactive, zoom])
 
   // Paint the template.
   useEffect(() => {
@@ -278,8 +286,8 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
   const panels = panelsFor(config)
   // The customer's layers, plus the number, name and make lettering, which
   // move and resize the same way.
-  const lettering = riderLayers(config, panels, 'right', seen).filter((l) => !plates || l.panel === 'sidePlate')
-  const letteringLeft = riderLayers(config, panels, 'left', seen)
+  // One of each per side, adjusted independently.
+  const lettering = [...riderLayers(config, panels, 'right', seen), ...riderLayers(config, panels, 'left', seen)].filter((l) => !plates || l.panel === 'sidePlate')
   const movable = [...config.layers.filter((l) => !(l.kind === 'image' && l.cover)), ...lettering]
   const updateLayer = (id: string, patch: Partial<Layer>) => {
     const key = riderKeyOf(id)
@@ -288,7 +296,7 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     if (!cur) return
     if (patch.fill) return setRider(key === 'number' ? { numberColor: patch.fill } : key === 'name' ? { nameColor: patch.fill } : {})
     const at: TextPlace = { x: cur.x, y: cur.y, size: cur.size, rotation: cur.rotation }
-    setRider({ place: { ...config.rider.place, [key]: { ...at, ...patch } } })
+    setRider({ place: { ...config.rider.place, [riderPlaceOf(id)]: { ...at, ...patch } } })
   }
 
   const toTemplate = (e: RPointerEvent): Pt => {
@@ -307,7 +315,9 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     return Math.abs(u) < w / 2 + tol && Math.abs(v) < h / 2 + tol
   }
   // Whether a main-panel (or whole-kit) layer shows on a piece.
-  const onPanel = (l: Layer, host: TemplatePiece) => MAIN.includes(host.role) && (l.panel === 'kit' || l.panel === host.role)
+  // The number and lettering belong to one side of the bike.
+  const onPanel = (l: Layer, host: TemplatePiece) =>
+    MAIN.includes(host.role) && (l.panel === 'kit' || l.panel === host.role) && (!riderKeyOf(l.id) || riderSideOf(l.id) === (host.side === 'left' ? 'left' : 'right'))
   // A piece-panel layer's box in template units.
   const pieceBox = (l: Layer, piece: TemplatePiece) => {
     const f = pieceFrame(l, piece.bbox)
@@ -335,7 +345,14 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     if (!fit) return
     const t = toTemplate(e)
     const hitPiece = pieceAt(t)
-    if (!hitPiece) return select(null)
+    if (!hitPiece) {
+      // Zoomed in: dragging the background pans.
+      if (zoom.z > 1) {
+        pan.current = { x: e.clientX, y: e.clientY, cx: zoom.cx, cy: zoom.cy }
+        ;(e.target as Element).setPointerCapture(e.pointerId)
+      }
+      return select(null)
+    }
     const l = layerAt(t, hitPiece)
     // Picking a part while colouring stays on the Colours step.
     // The number and lettering are edited on their own step.
@@ -363,6 +380,11 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     ;(e.target as Element).setPointerCapture(e.pointerId)
   }
   const move = (e: RPointerEvent) => {
+    if (pan.current && fit) {
+      const p0 = pan.current
+      setZoom((z) => ({ ...z, cx: p0.cx - (e.clientX - p0.x) / fit.s, cy: p0.cy - (e.clientY - p0.y) / fit.s }))
+      return
+    }
     const d = drag.current
     if (!d || !fit) {
       if (fit && ref.current) {
@@ -397,7 +419,41 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     }
     updateLayer(d.id, { x: clamp((wx - d.dx - p.x) / p.w, box.w / 2 / p.w), y: clamp((wy - d.dy - p.y) / p.h, box.h / 2 / p.h) })
   }
-  const up = () => (drag.current = null)
+  const up = () => {
+    drag.current = null
+    pan.current = null
+  }
+
+  // Zoom in or out around a template point (the middle of the view by default).
+  const zoomBy = (k: number, at?: Pt) => {
+    if (!fit) return
+    const z = Math.min(8, Math.max(1, zoom.z * k))
+    if (z === 1) return setZoom({ z: 1, cx: 0, cy: 0 })
+    const mid: Pt = [(size.w / 2 - fit.ox) / fit.s, (fit.padTop + (size.h - fit.padTop - fit.padBottom) / 2 - fit.oy) / fit.s]
+    const p = at ?? mid
+    // Keep the point under the cursor where it is.
+    const f = fit.s / (fit.base * z)
+    setZoom({ z, cx: p[0] + (mid[0] - p[0]) * f, cy: p[1] + (mid[1] - p[1]) * f })
+  }
+  // Zoom to the pieces of the panel being designed: one side at a time when
+  // they sit on both sides (each press goes to the next side).
+  const focusSide = useRef(0)
+  const focusPanel = () => {
+    if (!fit) return
+    const all = pieces.filter((x) => x.printed && (panel === 'kit' || panelKey(x.host, template.pieces) === panel))
+    if (!all.length || panel === 'kit') return setZoom({ z: 1, cx: 0, cy: 0 })
+    const sides = (['right', 'center', 'left'] as const).filter((sd) => all.some((x) => x.p.side === sd))
+    const side = sides[focusSide.current++ % sides.length]
+    const mine = all.filter((x) => x.p.side === side)
+    const x0 = Math.min(...mine.map((x) => x.p.bbox.x))
+    const y0 = Math.min(...mine.map((x) => x.p.bbox.y))
+    const x1 = Math.max(...mine.map((x) => x.p.bbox.x + x.p.bbox.w))
+    const y1 = Math.max(...mine.map((x) => x.p.bbox.y + x.p.bbox.h))
+    const fitS = Math.min((size.w - fit.padX * 2) / (x1 - x0), (size.h - fit.padTop - fit.padBottom) / (y1 - y0)) * 0.9
+    setZoom({ z: Math.min(8, Math.max(1, fitS / fit.base)), cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 })
+  }
+  // Back to the whole template when the bike or side view changes.
+  useEffect(() => setZoom({ z: 1, cx: 0, cy: 0 }), [config.bikeId, view])
 
   // Outline of the selected layer on every piece it lands on.
   const sel = movable.find((l) => l.id === selected)
@@ -419,9 +475,9 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     if (riderKeyOf(sel.id)) {
       // The number and lettering are drawn upright on each piece: so is their box.
       return pieces
-        .filter(({ p, printed }) => printed && p.parent === undefined && p.role === sel.panel)
+        .filter(({ p, printed }) => printed && p.parent === undefined && p.role === sel.panel && (p.side === 'left' ? 'left' : 'right') === riderSideOf(sel.id))
         .flatMap(({ p, toWorld }) => {
-          const l = p.side === 'left' ? (letteringLeft.find((x) => x.id === sel.id) ?? sel) : sel
+          const l = sel
           const b = layerBox(l, panels)
           const [tx, ty] = apply(invert(toWorld), [b.cx, b.cy])
           if (!inside([tx, ty], p.outline)) return []
@@ -514,7 +570,33 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
         onPointerMove={interactive ? move : undefined}
         onPointerUp={up}
         onPointerCancel={up}
+        onWheel={
+          interactive
+            ? (e) => {
+                if (!e.ctrlKey && !e.metaKey && zoom.z === 1 && e.deltaY > 0) return
+                zoomBy(e.deltaY < 0 ? 1.2 : 1 / 1.2, toTemplate(e as unknown as RPointerEvent))
+              }
+            : undefined
+        }
       />
+      {interactive && (
+        <div className="zoom-tools" role="group" aria-label="Zoom">
+          <button onClick={() => zoomBy(1.4)} aria-label="Zoom in" title="Zoom in">
+            <Icon name="plus" size={16} />
+          </button>
+          <button onClick={() => zoomBy(1 / 1.4)} aria-label="Zoom out" title="Zoom out" disabled={zoom.z <= 1}>
+            −
+          </button>
+          <button onClick={focusPanel} title="Zoom to the panel you are designing (press again for the other side)" disabled={panel === 'kit'}>
+            Focus
+          </button>
+          {zoom.z > 1 && (
+            <button onClick={() => setZoom({ z: 1, cx: 0, cy: 0 })} title="Show the whole template">
+              Fit
+            </button>
+          )}
+        </div>
+      )}
       {interactive && selPolys.length > 0 && (
         <svg className="designer-sel" width={size.w} height={size.h} aria-hidden="true">
           {selPolys.map((x, i) => (
@@ -546,7 +628,7 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
           {riderKeyOf(sel.id) ? (
             <>
               {/* The number and lettering: back to the automatic spot, or hide the make. */}
-              <button onClick={() => setRider({ place: { ...config.rider.place, [riderKeyOf(sel.id)!]: undefined } })} aria-label="Reset position" title="Reset position and size">
+              <button onClick={() => setRider({ place: { ...config.rider.place, [riderPlaceOf(sel.id)]: undefined } })} aria-label="Reset position" title="Reset position and size">
                 <Icon name="rotate" size={16} />
               </button>
               {riderKeyOf(sel.id) === 'make' && (

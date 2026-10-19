@@ -3020,3 +3020,80 @@ img.render {
 .bike-soon .options {
   margin-top: 10px;
 }
+
+/* Template zoom */
+.zoom-tools {
+  position: absolute;
+  z-index: 3;
+  right: 16px;
+  top: 76px;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px;
+  background: rgba(11, 12, 9, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+}
+.zoom-tools button {
+  display: grid;
+  place-items: center;
+  min-width: 40px;
+  height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.zoom-tools button:first-child,
+.zoom-tools button:nth-child(2) {
+  font-size: 20px;
+}
+.zoom-tools button:hover:not(:disabled) {
+  background: rgba(242, 240, 232, 0.1);
+}
+.zoom-tools button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+@media (max-width: 700px) {
+  .zoom-tools {
+    top: 64px;
+    right: 8px;
+  }
+}
+
+/* Review: the design on the print template */
+.template-proof {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: #ffffff;
+}
+.template-proof img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.template-proof figcaption {
+  margin-top: 8px;
+  color: #55574d;
+  font-size: 12px;
+}
+.proof-wait {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 2 / 1;
+  color: #55574d;
+  font-size: 14px;
+}

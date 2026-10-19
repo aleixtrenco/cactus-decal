@@ -34,8 +34,7 @@ import {
   type MaterialId,
 } from '../data/pricing'
 import { decodeConfig, encodeConfig } from '../lib/share'
-import { drawProof } from '../lib/proof'
-import { ensureAssets, frontPlateColor, riderId, riderKeyOf, riderLayers } from '../lib/graphics'
+import { ensureAssets, frontPlateColor, loadImage, riderId, riderKeyOf, riderLayers, riderPlaceOf, riderSideOf, type Side } from '../lib/graphics'
 import { STEPS, pieceIdOf, platesOnly, priceInput, useConfig, type KitConfig, type LayerPanel, type PlasticsId, type RiderText, type TextPlace } from '../store/config'
 import type { Paint } from '../lib/paint'
 import type { StageApi, View } from '../three/Stage'
@@ -610,27 +609,37 @@ function ColourStep() {
   )
 }
 
-// Size and position of the number, name and make lettering: automatic until
-// changed here or on the template (same on both sides of the bike).
+// Size and position of the number, name and make lettering, for each side of
+// the bike on its own: automatic until changed here or on the template.
 function LetteringPlace() {
   const { config, setRider, select, setPanel } = useConfig()
   const selected = useConfig((s) => s.selected)
   const seen = useSeen((s) => s.byBike[config.bikeId])
-  const items = riderLayers(config, panelsFor(config), 'right', seen).filter((l) => !platesOnly(config) || l.panel === 'sidePlate')
-  const LABEL: Record<RiderText, string> = { number: 'Number (side plates)', name: 'Name (shrouds)', make: 'Make (shrouds)' }
+  const side: Side = selected && riderKeyOf(selected) ? riderSideOf(selected) : 'right'
+  const items = riderLayers(config, panelsFor(config), side, seen).filter((l) => !platesOnly(config) || l.panel === 'sidePlate')
+  const LABEL: Record<RiderText, string> = { number: 'Number', name: 'Name', make: 'Make' }
   const key = riderKeyOf(selected) ?? 'number'
-  const item = items.find((l) => l.id === riderId(key)) ?? items[0]
+  const item = items.find((l) => l.id === riderId(key, side)) ?? items[0]
   if (!item) return null
-  const k = riderKeyOf(item.id)!
+  const k = riderPlaceOf(item.id)
+  const pick = (id: string, panel: LayerPanel) => (setPanel(panel), select(id))
   const put = (patch: Partial<TextPlace>) => setRider({ place: { ...config.rider.place, [k]: { x: item.x, y: item.y, size: item.size, rotation: item.rotation, ...patch } } })
+  const other = riderId(riderKeyOf(item.id)!, side === 'right' ? 'left' : 'right')
   return (
     <div className="group">
       <div className="group-label">
-        Size & position <span>{config.rider.place?.[k] ? 'Moved by you' : 'Automatic'}</span>
+        Size & position <span>{config.rider.place?.[k] ? 'Adjusted' : 'Automatic'}</span>
+      </div>
+      <div className="seg" role="group" aria-label="Side of the bike" style={{ marginBottom: 10 }}>
+        {(['right', 'left'] as const).map((s) => (
+          <button key={s} aria-pressed={side === s} onClick={() => pick(riderId(riderKeyOf(item.id)!, s), item.panel)}>
+            {s === 'right' ? 'Right side' : 'Left side'}
+          </button>
+        ))}
       </div>
       <div className="chips" role="group" aria-label="Lettering">
         {items.map((l) => (
-          <button key={l.id} className="chip chip-sm" aria-pressed={l.id === item.id} onClick={() => (setPanel(l.panel), select(l.id))}>
+          <button key={l.id} className="chip chip-sm" aria-pressed={l.id === item.id} onClick={() => pick(l.id, l.panel)}>
             {LABEL[riderKeyOf(l.id)!]}
           </button>
         ))}
@@ -641,7 +650,7 @@ function LetteringPlace() {
             ['Size', 'size', 0.05, 1.2, 0.01],
             ['Left / right', 'x', 0, 1, 0.01],
             ['Up / down', 'y', 0, 1, 0.01],
-            ['Rotation', 'rotation', -45, 45, 1],
+            ['Tilt', 'rotation', -45, 45, 1],
           ] as const
         ).map(([lab, f, min, max, step]) => (
           <label key={f} className="slider">
@@ -650,11 +659,16 @@ function LetteringPlace() {
           </label>
         ))}
       </div>
-      {config.rider.place?.[k] && (
-        <button className="chip chip-sm" style={{ marginTop: 10 }} onClick={() => setRider({ place: { ...config.rider.place, [k]: undefined } })}>
-          Back to automatic
+      <div className="chips" style={{ marginTop: 10 }}>
+        {config.rider.place?.[k] && (
+          <button className="chip chip-sm" onClick={() => setRider({ place: { ...config.rider.place, [k]: undefined } })}>
+            Back to automatic
+          </button>
+        )}
+        <button className="chip chip-sm" onClick={() => setRider({ place: { ...config.rider.place, [riderPlaceOf(other)]: { x: item.x, y: item.y, size: item.size, rotation: item.rotation } } })}>
+          Copy to the {side === 'right' ? 'left' : 'right'} side
         </button>
-      )}
+      </div>
     </div>
   )
 }
@@ -828,37 +842,46 @@ function ReviewStep({ onToast, onShare }: { onToast: (s: string) => void; onShar
   }, [demo])
   const lines = priceLines(priceInput(config))
   const total = priceTotal(priceInput(config))
+  // The design on the model's real print template (the file we print from).
+  const template = useTemplates((s) => s.templates[config.bikeId])
+  const [proof, setProof] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    let url: string | null = null
+    setProof(null)
+    ensureAssets(config)
+      // Loaded when needed: it brings the font outlines with it.
+      .then(() => import('../lib/printSvg'))
+      .then((m) => m.buildPrintSvg(config, template, { info: false }))
+      .then((f) => {
+        if (!alive) return
+        url = URL.createObjectURL(new Blob([f.svg], { type: 'image/svg+xml' }))
+        setProof(url)
+      })
+      .catch(() => alive && setProof(null))
+    return () => {
+      alive = false
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [config, template])
 
   const downloadProof = async () => {
-    await ensureAssets(config)
-    const W = 1600
+    if (!proof) return
+    const img = await loadImage(proof)
+    const W = 2400
+    const H = Math.round((W * img.naturalHeight) / img.naturalWidth)
     const out = document.createElement('canvas')
     out.width = W
-    out.height = 1900
+    out.height = H + 220
     const ctx = out.getContext('2d')!
-    ctx.fillStyle = '#efece3'
+    ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, W, out.height)
-    for (const [i, side] of (['right', 'left'] as const).entries()) {
-      const c = document.createElement('canvas')
-      c.width = W - 120
-      c.height = Math.round((W - 120) * 0.56)
-      drawProof(c, config, side)
-      ctx.drawImage(c, 60, 140 + i * (c.height + 80))
-      ctx.fillStyle = '#3a3a33'
-      ctx.font = '700 22px Saira'
-      ctx.fillText(`${side.toUpperCase()} SIDE`, 60, 130 + i * (c.height + 80))
-    }
     ctx.fillStyle = '#101010'
-    ctx.font = 'italic 800 64px "Saira Extra Condensed"'
-    ctx.fillText('CACTUS DECAL LAB · PROOF', 60, 90)
-    ctx.font = '500 26px Saira'
-    const rows = [
-      `${bike.make} ${bike.model} (${bike.years})`,
-      `Design: ${designById(config.designId).name} · Finish: ${FINISHES[config.finish].label} · ${MATERIALS[config.material].label}`,
-      `Name: ${config.rider.name || '-'} · Number: ${config.rider.number || '-'}`,
-      `Total: ${formatAED(total)}`,
-    ]
-    rows.forEach((r, i) => ctx.fillText(r, 60, 1700 + i * 44))
+    ctx.font = 'italic 800 72px "Saira Extra Condensed"'
+    ctx.fillText('CACTUS DECAL LAB · PROOF', 60, 100)
+    ctx.font = '500 32px Saira'
+    ctx.fillText(`${bike.make} ${bike.model} (${bike.years}) · ${designById(config.designId).name} · ${FINISHES[config.finish].label} · ${MATERIALS[config.material].label} · ${formatAED(total)}`, 60, 160)
+    ctx.drawImage(img, 0, 200, W, H)
     const a = document.createElement('a')
     a.href = out.toDataURL('image/png')
     a.download = `cactus-decal-lab-proof-${config.rider.number || 'kit'}.png`
@@ -925,14 +948,10 @@ function ReviewStep({ onToast, onShare }: { onToast: (s: string) => void; onShar
   return (
     <>
       <StepHead title="Review" lead="Check your proof carefully. This is what we print." />
-      <div className="group proofs">
-        <figure>
-          <ProofCanvas cfg={config} side="right" width={720} label="Right side proof" />
-          <figcaption>Right side</figcaption>
-        </figure>
-        <figure>
-          <ProofCanvas cfg={config} side="left" width={720} label="Left side proof" />
-          <figcaption>Left side</figcaption>
+      <div className="group">
+        <figure className="template-proof">
+          {proof ? <img src={proof} alt={`Print template of your design for the ${bike.make} ${bike.model}`} /> : <div className="proof-wait">Preparing your print template…</div>}
+          <figcaption>Your design on the {bike.make} print template, as it will be printed and cut (pink lines).</figcaption>
         </figure>
       </div>
       <div className="group">

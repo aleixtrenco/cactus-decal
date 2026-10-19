@@ -68,6 +68,7 @@ export interface Layer {
 }
 
 export type RiderText = 'number' | 'name' | 'make'
+export type RiderPlace = RiderText | `${RiderText}:left`
 export interface TextPlace {
   x: number
   y: number
@@ -83,7 +84,8 @@ export interface KitConfig {
   // plateColor: the side plates; frontPlateColor: the front plate (follows
   // the side plates until it is set on its own).
   // `place`: where the customer moved or resized the number, name or make
-  // lettering (like a layer on that panel); automatic until then.
+  // lettering (like a layer on that panel), per side: "number" is the right
+  // side, "number:left" the left. Automatic until then.
   rider: {
     name: string
     number: string
@@ -92,7 +94,7 @@ export interface KitConfig {
     plateColor: string
     frontPlateColor?: string
     nameColor: string
-    place?: Partial<Record<RiderText, TextPlace>>
+    place?: Partial<Record<RiderPlace, TextPlace>>
   }
   makeLettering: boolean
   logos: Logo[]

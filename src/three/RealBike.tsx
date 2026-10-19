@@ -15,8 +15,9 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
-import { drawLayer, drawPieceLayer, ensureAssets, fillPieceSolid, paintDecalSheet, paintFrontPlate, paintSheet, pieceFill, riderLayers, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
+import { drawLayer, drawPieceLayer, ensureAssets, fillPieceSolid, frontPlateColor, paintDecalSheet, paintFrontPlate, paintSheet, pieceFill, riderLayers, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
 import { useSeen } from '../lib/seen'
+import { paintStyle } from '../lib/paint'
 import { FRONT_WHEEL } from '../lib/shapes'
 import { invert, modelUrl, mul6, onModel, panelKey, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role, type TemplatePiece } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
@@ -374,18 +375,42 @@ function clearAreas(c: HTMLCanvasElement, side: Side, areas: [number, number][][
   ctx.restore()
 }
 
-// Front plate piece layers on top of the plate artwork (same placement as the
-// print file: the plate art is centred on the piece).
-function paintPlatePieces(P: Projector, cfg: KitConfig, t: BikeTemplate) {
-  const p = t.pieces.find((x) => x.role === 'frontPlate')
-  if (!p) return
-  const S = 512
-  const k = Math.min(p.bbox.w, p.bbox.h * 1.1) / (S * 0.82)
-  const mx = p.bbox.x + p.bbox.w / 2 - (S / 2) * k
-  const my = p.bbox.y + p.bbox.h / 2 - (S / 2) * k
+// The front of the bike seen from the front: the template's front plate (or,
+// for models with a headlight mask, the piece set as `model.frontPiece`)
+// exactly as the template shows it, with any small pieces on it, stretched
+// over the plate area of the model.
+function paintFront(P: Projector, cfg: KitConfig, t: BikeTemplate & { model: ModelSetup }) {
   const c = P.sheets.plate
-  const q = c.width / S / k
-  paintPieceLayers(c, cfg, t, p, [q, 0, 0, q, -mx * q, -my * q])
+  const ctx = c.getContext('2d')!
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  const front = (t.model.frontPiece !== undefined ? t.pieces.find((p) => p.id === t.model.frontPiece) : undefined) ?? t.pieces.find((p) => p.role === 'frontPlate')
+  if (!front) return paintFrontPlate(c, cfg)
+  const { x, y, w, h } = front.bbox
+  const S: M6 = [c.width / w, 0, 0, c.height / h, (-x * c.width) / w, (-y * c.height) / h]
+  ctx.fillStyle = paintStyle(ctx, front.role === 'frontPlate' ? frontPlateColor(cfg) : (cfg.partColors?.[panelKey(front, t.pieces)] ?? cfg.colors.base), { x: 0, y: 0, w: c.width, h: c.height })
+  ctx.fillRect(0, 0, c.width, c.height)
+  const square = Object.assign(document.createElement('canvas'), { width: 512, height: 512 })
+  paintFrontPlate(square, cfg)
+  const k = (WORLD.x1 - WORLD.x0) / P.sheets.art.width
+  const inside = (p: TemplatePiece) => {
+    const cx = p.bbox.x + p.bbox.w / 2
+    const cy = p.bbox.y + p.bbox.h / 2
+    return p.side === 'center' && p.role !== 'ignore' && p.role !== 'frontFender' && cx > x && cx < x + w && cy > y && cy < y + h
+  }
+  const parts = [front, ...t.pieces.filter((p) => p !== front && inside(p))]
+  for (const p of parts) {
+    if (p.role === 'frontPlate') {
+      // Same placement as the template and the print file.
+      const q = Math.min(p.bbox.w, p.bbox.h * 1.1) / (512 * 0.82)
+      const m: M6 = [q, 0, 0, q, p.bbox.x + p.bbox.w / 2 - 256 * q, p.bbox.y + p.bbox.h / 2 - 256 * q]
+      fillPiece(c, p, S, square, mul6(S, m))
+    } else {
+      const solid = pieceFill(cfg, p, panelKey(p, t.pieces))
+      if (solid) fillPieceSolid(ctx, cfg, p, solid, S)
+      else fillPiece(c, p, S, P.sheets.art, mul6(mul6(S, invert(pieceToWorld(p, t.pieces))), [k, 0, 0, -k, WORLD.x0, WORLD.y1]))
+    }
+    paintPieceLayers(c, cfg, t, p, S)
+  }
 }
 
 // The template's front fender piece and the pieces laid on it (e.g. a centre
@@ -397,8 +422,8 @@ function paintFender(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: Retu
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.clearRect(0, 0, c.width, c.height)
   const piece = t.pieces.find((p) => p.role === 'frontFender' && p.side === 'center') ?? t.pieces.find((p) => p.role === 'frontFender')
-  if (!piece || platesOnly(cfg)) return
   paintSheet(P.sheets.art, cfg, 'right', panels, { pieces: true, lettering: false })
+  if (!piece || platesOnly(cfg)) return
   const overlay = overlays(cfg, panels, P.sheets.art.width)
   const { x, y, w, h } = piece.bbox
   // Template → fender sheet (long side of the piece along the sheet's height).
@@ -563,9 +588,8 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
       paintDecalSheet(P.sheets.left, cfg, 'left', right.length ? right : sideOutlines(template, 'left', roles), panels, seen)
       paintSidePieces(P, cfg, template, panels, roles, seen)
       for (const side of ['right', 'left'] as const) clearAreas(P.sheets[side], side, template.model.exclude)
-      paintFrontPlate(P.sheets.plate, cfg, template.model.plate)
-      paintPlatePieces(P, cfg, template)
       paintFender(P, cfg, template, panels)
+      paintFront(P, cfg, template)
       for (const t of P.textures) t.needsUpdate = true
     }
     paint()
