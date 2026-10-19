@@ -4,8 +4,9 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { WORLD } from '../lib/graphics'
-import { ROLE_LABELS, apply, defaultModelSetup, resolveModel, mul6, pieceToWorld, type BikeTemplate, type M6, type ModelSetup, type TemplatePiece } from '../lib/templates'
+import { ROLE_LABELS, apply, defaultModelSetup, modelFor, resolveModel, mul6, pieceToWorld, useTemplates, type BikeTemplate, type M6, type ModelSetup, type TemplatePiece } from '../lib/templates'
 import { fitModel } from '../three/RealBike'
+import { bikeById } from '../data/bikes'
 import Icon from './Icon'
 
 const { x0, x1, y0, y1 } = WORLD
@@ -59,6 +60,8 @@ async function uploadModel(file: File, bikeId: string, pw: string) {
 
 export default function ModelEditor({ template, onChange, pw, online }: { template: BikeTemplate; onChange: (t: BikeTemplate) => void; pw: string; online: boolean }) {
   const model = template.model
+  const make = bikeById(template.bikeId).make
+  const brand = modelFor(template.bikeId, useTemplates((s) => s.templates))
   const [shot, setShot] = useState<string | null>(null)
   const [sel, setSel] = useState<number | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -133,6 +136,18 @@ export default function ModelEditor({ template, onChange, pw, online }: { templa
       <div className="group-label">
         3D model <span>{model ? 'Line it up, then place the pieces' : 'Optional: a real model of this bike'}</span>
       </div>
+      {model && <p className="note" style={{ marginTop: 0 }}>Also shown for every other {make} model that doesn’t have its own 3D model.</p>}
+      {!model && brand && (
+        <div className="note" style={{ marginTop: 0 }}>
+          <p>
+            Customers already see the {make} 3D model for this bike. To line this template’s pieces up on it exactly, use it here; or upload a
+            different model below.
+          </p>
+          <button className="chip" style={{ marginTop: 8 }} onClick={() => onChange({ ...template, model: { ...brand } })}>
+            Use the {make} model
+          </button>
+        </div>
+      )}
       {!model && (
         <label className="upload">
           <Icon name="cube" size={28} />

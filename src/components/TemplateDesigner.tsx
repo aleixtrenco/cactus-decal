@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { ensureAssets, layerBox, paintFrontPlate, paintSheet, sheetWidth, WORLD, type Side } from '../lib/graphics'
 import { apply, builtInTemplate, invert, mul6, panelsFor, pieceToWorld, useTemplates, type M6, type Role, type TemplatePiece } from '../lib/templates'
-import { platesOnly, useConfig, type Layer } from '../store/config'
+import { firstColor, paintCss } from '../lib/paint'
+import { platesOnly, useConfig, type Layer, type LayerPanel } from '../store/config'
+import { panelName } from '../lib/layers'
+import Icon from './Icon'
 
 // The main design surface: the model's real print template (the SVG cut
 // file), every piece filled with its part of the design exactly as it will
@@ -11,10 +14,14 @@ import { platesOnly, useConfig, type Layer } from '../store/config'
 type Pt = [number, number]
 type View = 'both' | 'right' | 'left'
 
-const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender']
+// Pieces that carry lettering and layers (trim pieces get the pattern only).
+const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
 const PLATES: Role[] = ['frontPlate', 'sidePlate']
 const MAIN: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
 const GRAPHICS_STEP = 3
+
+// The panel a template piece belongs to (trim pieces count as the whole kit).
+const panelOf = (host: TemplatePiece): LayerPanel => (MAIN.includes(host.role) ? (host.role as LayerPanel) : 'kit')
 
 // Sheet pixel → world, for each side (inverse of the painter transform).
 function sheetToWorld(side: Side, w: number): M6 {
@@ -22,14 +29,19 @@ function sheetToWorld(side: Side, w: number): M6 {
   return side === 'right' ? [k, 0, 0, -k, WORLD.x0, WORLD.y1] : [-k, 0, 0, -k, WORLD.x1, WORLD.y1]
 }
 
+// Point in outline, non-zero winding (the same rule the canvas fills with,
+// so self-overlapping outlines behave as drawn).
 function inside([x, y]: Pt, poly: Pt[]) {
-  let hit = false
+  let wn = 0
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, yi] = poly[i]
-    const [xj, yj] = poly[j]
-    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hit = !hit
+    const [xi, yi] = poly[j]
+    const [xj, yj] = poly[i]
+    const side = (xj - xi) * (y - yi) - (x - xi) * (yj - yi)
+    if (yi <= y) {
+      if (yj > y && side > 0) wn++
+    } else if (yj <= y && side < 0) wn--
   }
-  return hit
+  return wn !== 0
 }
 
 const canvasOf = (w: number, h: number) => Object.assign(document.createElement('canvas'), { width: w, height: h })
@@ -54,7 +66,7 @@ function corners(b: { cx: number; cy: number; w: number; h: number }, rotation: 
 }
 
 export default function TemplateDesigner({ interactive = true }: { interactive?: boolean }) {
-  const { config, step, setStep, selected, select, updateLayer } = useConfig()
+  const { config, step, setStep, selected, select, updateLayer, removeLayer, duplicateLayer, panel: chosen, setPanel } = useConfig()
   const stored = useTemplates((s) => s.templates[config.bikeId])
   const template = useMemo(() => stored ?? builtInTemplate(config), [stored, config.bikeId]) // eslint-disable-line react-hooks/exhaustive-deps
   const exact = !!stored
@@ -68,7 +80,11 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     dx: number
     dy: number
   } | null>(null)
+  // Resizing or rotating the selected layer with its handles (CSS pixels).
+  const handle = useRef<{ mode: 'size' | 'turn'; cx: number; cy: number; d0: number; a0: number; size: number; rotation: number; sign: number } | null>(null)
   const plates = platesOnly(config)
+  // Plates-only orders can only be designed on the side plates (or whole kit).
+  const panel: LayerPanel = plates && chosen !== 'sidePlate' && chosen !== 'kit' ? 'sidePlate' : chosen
 
   // Track the space available.
   useEffect(() => {
@@ -188,15 +204,23 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
         }
         ctx.restore()
       }
-      // Cut lines on top.
+      // Cut lines on top; the panel being designed stands out, the rest dims.
       ctx.save()
       setM(V)
       ctx.lineJoin = 'round'
-      ctx.lineWidth = 1.2 / fit.s
-      for (const { p, printed } of pieces) {
-        path(p)
-        ctx.strokeStyle = printed ? 'rgba(242, 240, 232, 0.55)' : 'rgba(242, 240, 232, 0.18)'
-        ctx.setLineDash(printed ? [] : [4 / fit.s, 4 / fit.s])
+      const focus = (x: (typeof pieces)[number]) => !interactive || panel === 'kit' || panelOf(x.host) === panel
+      for (const x of pieces) {
+        if (!x.printed || focus(x)) continue
+        path(x.p)
+        ctx.fillStyle = 'rgba(11, 12, 9, 0.55)'
+        ctx.fill()
+      }
+      for (const x of pieces) {
+        path(x.p)
+        const on = x.printed && interactive && panel !== 'kit' && focus(x)
+        ctx.lineWidth = (on ? 2.4 : 1.2) / fit.s
+        ctx.strokeStyle = on ? '#8cd63a' : x.printed ? 'rgba(242, 240, 232, 0.55)' : 'rgba(242, 240, 232, 0.18)'
+        ctx.setLineDash(x.printed ? [] : [4 / fit.s, 4 / fit.s])
         ctx.stroke()
       }
       ctx.restore()
@@ -211,7 +235,7 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       alive = false
       cancelAnimationFrame(frame)
     }
-  }, [config, pieces, fit, size])
+  }, [config, pieces, fit, size, panel, interactive])
 
   // --- Interaction -------------------------------------------------------
 
@@ -244,9 +268,14 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     if (!hitPiece) return select(null)
     const w = apply(hitPiece.toWorld, t)
     const l = layerAt(w)
-    if (!l) return select(null)
-    select(l.id)
     if (step !== GRAPHICS_STEP) setStep(GRAPHICS_STEP)
+    if (!l) {
+      // Tapping a piece picks its panel for designing.
+      const p = panelOf(hitPiece.host)
+      setPanel(plates && p !== 'sidePlate' ? 'sidePlate' : p)
+      return select(null)
+    }
+    select(l.id)
     const b = layerBox(l, panels)
     drag.current = {
       id: l.id,
@@ -293,10 +322,69 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     const on = targets.filter(({ p, toWorld }) => inside(apply(invert(toWorld), [b.cx, b.cy]), p.outline))
     // Dragged off its panel: still show it against that panel on each side.
     const shown = on.length ? on : targets.filter(({ p }, i) => targets.findIndex((x) => x.p.side === p.side) === i)
-    const out = shown.map(({ toWorld }) => toCss(world.map((w) => apply(invert(toWorld), w))))
-    return out
+    return shown.map(({ toWorld }) => {
+      const pts = world.map((w) => apply(invert(toWorld), w)).map(([x, y]): Pt => [x * fit.s + fit.ox, y * fit.s + fit.oy])
+      // Mirrored pieces turn the other way on screen.
+      return { pts, points: toCss(pts.map(([x, y]): Pt => [(x - fit.ox) / fit.s, (y - fit.oy) / fit.s])), sign: Math.sign(toWorld[0] * toWorld[3] - toWorld[1] * toWorld[2]) || 1 }
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel, fit, pieces, config])
+
+  // Handles on the first outline: resize at a corner, rotate above the top edge.
+  const grips = useMemo(() => {
+    const first = selPolys[0]
+    if (!first) return null
+    const pts = first.pts
+    const cx = pts.reduce((a, p) => a + p[0], 0) / 4
+    const cy = pts.reduce((a, p) => a + p[1], 0) / 4
+    const corner = pts.reduce((a, p) => (p[0] + p[1] > a[0] + a[1] ? p : a))
+    // corners() lists [-1,-1], [1,-1], [1,1], [-1,1]: the last two make the top edge.
+    const top: Pt = [(pts[2][0] + pts[3][0]) / 2, (pts[2][1] + pts[3][1]) / 2]
+    const dx = top[0] - cx
+    const dy = top[1] - cy
+    const len = Math.hypot(dx, dy) || 1
+    const turn: Pt = [top[0] + (dx / len) * 26, top[1] + (dy / len) * 26]
+    return { cx, cy, corner, top, turn, sign: first.sign, minY: Math.min(...pts.map((p) => p[1]), turn[1]) }
+  }, [selPolys])
+
+  const local = (e: RPointerEvent): Pt => {
+    const r = wrap.current!.getBoundingClientRect()
+    return [e.clientX - r.left, e.clientY - r.top]
+  }
+  const startHandle = (e: RPointerEvent, mode: 'size' | 'turn') => {
+    if (!sel || !grips) return
+    e.stopPropagation()
+    const [x, y] = local(e)
+    handle.current = {
+      mode,
+      cx: grips.cx,
+      cy: grips.cy,
+      d0: Math.hypot(x - grips.cx, y - grips.cy) || 1,
+      a0: Math.atan2(y - grips.cy, x - grips.cx),
+      size: sel.size,
+      rotation: sel.rotation,
+      sign: grips.sign,
+    }
+    ;(e.target as Element).setPointerCapture(e.pointerId)
+  }
+  const moveHandle = (e: RPointerEvent) => {
+    const h = handle.current
+    if (!h || !sel) return
+    const [x, y] = local(e)
+    if (h.mode === 'size') {
+      const k = Math.hypot(x - h.cx, y - h.cy) / h.d0
+      updateLayer(sel.id, { size: +Math.min(1.5, Math.max(0.03, h.size * k)).toFixed(3) })
+    } else {
+      const da = ((Math.atan2(y - h.cy, x - h.cx) - h.a0) * 180) / Math.PI
+      let r = h.rotation + da * h.sign
+      r = ((((r + 180) % 360) + 360) % 360) - 180
+      // Snap to straight angles when close.
+      const snap = Math.round(r / 45) * 45
+      updateLayer(sel.id, { rotation: Math.abs(r - snap) < 4 ? snap : Math.round(r) })
+    }
+  }
+  const endHandle = () => (handle.current = null)
+  const resize = (k: number) => sel && updateLayer(sel.id, { size: +Math.min(1.5, Math.max(0.03, sel.size * k)).toFixed(3) })
 
   return (
     <div className={`designer${interactive ? '' : ' passive'}`} ref={wrap}>
@@ -312,13 +400,45 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       />
       {interactive && selPolys.length > 0 && (
         <svg className="designer-sel" width={size.w} height={size.h} aria-hidden="true">
-          {selPolys.map((pts, i) => (
-            <polygon key={i} points={pts} />
+          {selPolys.map((x, i) => (
+            <polygon key={i} points={x.points} />
           ))}
+          {grips && (
+            <>
+              <line x1={grips.top[0]} y1={grips.top[1]} x2={grips.turn[0]} y2={grips.turn[1]} className="grip-line" />
+              <circle className="grip turn" cx={grips.turn[0]} cy={grips.turn[1]} r={9} onPointerDown={(e) => startHandle(e, 'turn')} onPointerMove={moveHandle} onPointerUp={endHandle} />
+              <rect className="grip size" x={grips.corner[0] - 8} y={grips.corner[1] - 8} width={16} height={16} rx={3} onPointerDown={(e) => startHandle(e, 'size')} onPointerMove={moveHandle} onPointerUp={endHandle} />
+            </>
+          )}
         </svg>
+      )}
+      {interactive && sel && grips && (
+        <div className="sel-tools" style={{ left: Math.min(Math.max(grips.cx, 120), size.w - 120), top: Math.max(grips.minY - 58, 70) }}>
+          <button onClick={() => resize(1 / 1.15)} aria-label="Smaller" title="Smaller">
+            −
+          </button>
+          <button onClick={() => resize(1.15)} aria-label="Bigger" title="Bigger">
+            +
+          </button>
+          {sel.kind !== 'image' && (
+            <label className="sel-color" title="Colour">
+              <span style={{ background: paintCss(sel.fill) }} />
+              <input type="color" value={firstColor(sel.fill)} onChange={(e) => updateLayer(sel.id, { fill: e.target.value })} aria-label="Colour" />
+            </label>
+          )}
+          <button onClick={() => duplicateLayer(sel.id)} aria-label="Duplicate" title="Duplicate">
+            <Icon name="layers" size={16} />
+          </button>
+          <button onClick={() => (removeLayer(sel.id), select(null))} aria-label="Delete" title="Delete">
+            <Icon name="trash" size={16} />
+          </button>
+        </div>
       )}
       {interactive && (
         <div className="designer-bar">
+          <span className="editing-pill">
+            Designing: <b>{panelName(panel)}</b>
+          </span>
           <div className="seg" role="group" aria-label="Template view">
             {(
               [

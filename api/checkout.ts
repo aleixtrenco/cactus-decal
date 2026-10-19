@@ -67,7 +67,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         rider: clip(`${c.rider?.name ?? ''} #${c.rider?.number ?? ''} font:${c.rider?.font ?? ''} plate:${c.rider?.plateColor ?? ''} num:${c.rider?.numberColor ?? ''} name:${c.rider?.nameColor ?? ''}`, 500),
         plastics: clip(c.plastics, 20),
         order_id: orderId,
-        logos: clip(logos.map((l: { name: string }) => l.name).join(', '), 500),
+        logos: clip(
+          [...logos.map((l: { name: string }) => l.name), ...(Array.isArray(c.layers) ? c.layers : []).filter((l: { logo?: unknown }) => l?.logo).map((l: { name?: unknown }) => String(l.name ?? 'logo'))].join(', '),
+          500,
+        ),
         notes: clip(c.notes, 500),
         design_link: clip(`${origin}/configurator?d=${body?.share ?? ''}`, 500),
       },

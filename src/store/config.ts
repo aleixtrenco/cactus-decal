@@ -15,7 +15,7 @@ export interface Logo {
 }
 
 export type ShapeId = 'stripe' | 'twin' | 'chevron' | 'slash' | 'star' | 'circle' | 'triangle' | 'flame' | 'bolt' | 'checker' | 'cactus'
-export type LayerPanel = 'shroud' | 'sidePlate' | 'rearFender' | 'kit'
+export type LayerPanel = 'shroud' | 'sidePlate' | 'rearFender' | 'frontFender' | 'kit'
 
 // Something the customer added on top of the design: a shape, a line of
 // text or an image. Position (x, y) is 0–1 across the panel; size is the
@@ -38,6 +38,8 @@ export interface Layer {
   name?: string
   // Image only: stretch over the whole kit as the background.
   cover?: boolean
+  // Image only: an uploaded logo (listed in the Logos step).
+  logo?: boolean
 }
 
 export interface KitConfig {
@@ -102,6 +104,10 @@ interface Store {
   // The layer being edited (shared by the Graphics panel and the designer).
   selected: string | null
   select: (id: string | null) => void
+  // The panel being designed: new layers go here and it is highlighted.
+  panel: LayerPanel
+  setPanel: (p: LayerPanel) => void
+  duplicateLayer: (id: string) => void
   set: (patch: Partial<KitConfig>) => void
   setRider: (patch: Partial<KitConfig['rider']>) => void
   setColor: (slot: keyof Palette, hex: string) => void
@@ -122,7 +128,17 @@ export const useConfig = create<Store>((set) => ({
   config: defaultConfig(),
   step: 0,
   selected: null,
-  select: (id) => set({ selected: id }),
+  // Selecting a layer also switches to the panel it is on.
+  select: (id) => set((s) => ({ selected: id, panel: s.config.layers.find((l) => l.id === id)?.panel ?? s.panel })),
+  panel: 'shroud',
+  setPanel: (panel) => set((s) => ({ panel, selected: s.config.layers.find((l) => l.id === s.selected)?.panel === panel ? s.selected : null })),
+  duplicateLayer: (id) =>
+    set((s) => {
+      const l = s.config.layers.find((x) => x.id === id)
+      if (!l) return s
+      const copy = { ...l, id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), x: l.x + 0.06, y: l.y - 0.06 }
+      return { config: { ...s.config, layers: [...s.config.layers, copy] }, selected: copy.id }
+    }),
   set: (patch) => set((s) => ({ config: { ...s.config, ...patch } })),
   setRider: (patch) => set((s) => ({ config: { ...s.config, rider: { ...s.config.rider, ...patch } } })),
   setColor: (slot, hex) => set((s) => ({ config: { ...s.config, colors: { ...s.config.colors, [slot]: hex } } })),

@@ -4,12 +4,13 @@ import { useSearchParams } from 'react-router-dom'
 import { Contours, Header } from '../components/Chrome'
 import ColorField from '../components/ColorField'
 import GraphicsStep from '../components/GraphicsStep'
+import { newId, panelName, panelsAllowed, prepareImage } from '../lib/layers'
 import TemplateDesigner from '../components/TemplateDesigner'
 import Icon from '../components/Icon'
 import { paintCss } from '../lib/paint'
 import { AnimatedNumber, LazyStage, ProofCanvas } from '../components/bits'
 import { BIKES, MAKES, bikeById, typeLabel, type Make } from '../data/bikes'
-import { DESIGNS, LOGO_SLOTS, PRESETS, designById, swatchName, type LogoSlot, type Palette } from '../data/designs'
+import { DESIGNS, PRESETS, designById, swatchName, type Palette } from '../data/designs'
 import { FONTS as NUMBER_FONTS, type FontId as NumberFont } from '../data/fonts'
 import {
   EXTRAS,
@@ -32,7 +33,7 @@ import {
 import { decodeConfig, encodeConfig } from '../lib/share'
 import { drawProof } from '../lib/proof'
 import { ensureAssets, loadImage } from '../lib/graphics'
-import { STEPS, platesOnly, priceInput, useConfig, type KitConfig, type PlasticsId } from '../store/config'
+import { STEPS, platesOnly, priceInput, useConfig, type KitConfig, type LayerPanel, type PlasticsId } from '../store/config'
 import type { StageApi, View } from '../three/Stage'
 
 const STEP_VIEW: View[] = ['three-quarter', 'right', 'three-quarter', 'right', 'plate', 'right', 'three-quarter', 'three-quarter']
@@ -513,40 +514,40 @@ function RiderStep() {
   )
 }
 
-const MAX_LOGOS = 4
-const MAX_BYTES = 2 * 1024 * 1024
+const MAX_LOGOS = 6
 
 function LogoStep() {
-  const { config, addLogo, updateLogo, removeLogo } = useConfig()
+  const { config, addLayer, removeLayer, updateLayer, select, setPanel, setStep } = useConfig()
+  const chosen = useConfig((s) => s.panel)
   const [error, setError] = useState<string | null>(null)
   const [drag, setDrag] = useState(false)
   const input = useRef<HTMLInputElement>(null)
-  const freeSlot = (Object.keys(LOGO_SLOTS) as LogoSlot[]).find((s) => !config.logos.some((l) => l.slot === s)) ?? 'shroud-low'
+  const logos = config.layers.filter((l) => l.logo)
+  const allowed = panelsAllowed(platesOnly(config))
+  const target: LayerPanel = allowed.some(([p]) => p === chosen) && chosen !== 'kit' ? chosen : allowed[0][0]
 
   const accept = async (files: FileList | null) => {
     setError(null)
     if (!files?.length) return
     const file = files[0]
     if (!/^image\/(png|jpeg|svg\+xml|webp)$/.test(file.type)) return setError('That file type is not supported. Upload a PNG, JPG, SVG or WebP image.')
-    if (file.size > MAX_BYTES) return setError('That file is over 2 MB. Export a smaller version and try again.')
-    if (config.logos.length >= MAX_LOGOS) return setError(`You can add up to ${MAX_LOGOS} logos. Remove one to add another.`)
-    const src = await new Promise<string>((res) => {
-      const fr = new FileReader()
-      fr.onload = () => res(fr.result as string)
-      fr.readAsDataURL(file)
-    })
+    if (file.size > 15 * 1024 * 1024) return setError('That file is over 15 MB. Export a smaller version and try again.')
+    if (logos.length >= MAX_LOGOS) return setError(`You can add up to ${MAX_LOGOS} logos. Remove one to add another.`)
     try {
+      const src = await prepareImage(file)
       await loadImage(src)
+      const id = newId()
+      addLayer({ id, kind: 'image', logo: true, src, name: file.name, panel: target, x: 0.5, y: 0.5, size: 0.25, rotation: 0, opacity: 1, fill: '#ffffff' })
+      select(id)
     } catch {
       return setError('We could not read that image. Try exporting it again as PNG.')
     }
-    addLogo({ id: crypto.randomUUID(), name: file.name, src, slot: freeSlot })
     if (input.current) input.current.value = ''
   }
 
   return (
     <>
-      <StepHead title="Logos" lead="Add sponsor, team or shop logos and choose where they go." />
+      <StepHead title="Logos" lead="Add sponsor, team or shop logos, then drag them anywhere on the template. Use the corner handle to resize." />
       <div className="group">
         <label
           className={`upload ${drag ? 'drag' : ''}`}
@@ -563,7 +564,7 @@ function LogoStep() {
         >
           <Icon name="upload" size={28} />
           <b>Upload a logo</b>
-          <small>PNG with transparent background or SVG works best. Max 2 MB.</small>
+          <small>PNG with a transparent background or SVG works best. It goes on the {panelName(target).toLowerCase()} first.</small>
           <input
             ref={input}
             type="file"
@@ -579,25 +580,38 @@ function LogoStep() {
           </p>
         )}
       </div>
-      {config.logos.length > 0 && (
+      {logos.length > 0 && (
         <div className="group">
           <div className="group-label">
             Your logos{' '}
             <span>
-              {config.logos.length} of {MAX_LOGOS}
+              {logos.length} of {MAX_LOGOS}
             </span>
           </div>
-          {config.logos.map((l) => (
+          {logos.map((l) => (
             <div className="logo-row" key={l.id}>
               <img src={l.src} alt={l.name} />
-              <select className="select" value={l.slot} onChange={(e) => updateLogo(l.id, { slot: e.target.value as LogoSlot })} aria-label={`Position for ${l.name}`}>
-                {(Object.keys(LOGO_SLOTS) as LogoSlot[]).map((s) => (
-                  <option key={s} value={s}>
-                    {LOGO_SLOTS[s].label}
+              <select
+                className="select"
+                value={l.panel}
+                onChange={(e) => {
+                  const p = e.target.value as LayerPanel
+                  updateLayer(l.id, { panel: p, x: 0.5, y: 0.5 })
+                  setPanel(p)
+                  select(l.id)
+                }}
+                aria-label={`Panel for ${l.name}`}
+              >
+                {allowed.map(([p, name]) => (
+                  <option key={p} value={p}>
+                    {name}
                   </option>
                 ))}
               </select>
-              <button className="icon-btn" onClick={() => removeLogo(l.id)} aria-label={`Remove ${l.name}`}>
+              <button className="icon-btn" onClick={() => (select(l.id), setStep(3))} aria-label={`Edit ${l.name}`} title="Size, rotation and more">
+                <Icon name="layers" size={18} />
+              </button>
+              <button className="icon-btn" onClick={() => removeLayer(l.id)} aria-label={`Remove ${l.name}`}>
                 <Icon name="trash" size={18} />
               </button>
             </div>

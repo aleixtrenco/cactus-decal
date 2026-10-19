@@ -483,6 +483,16 @@ export function sideOutlines(t: BikeTemplate, side: 'right' | 'left', roles?: Ro
     })
 }
 
+// The 3D model shown for a bike: its own, else one from another model of the
+// same brand (every Husqvarna uses the Husqvarna model, and so on). The
+// bike's own template still decides the printed pieces.
+export function modelFor(bikeId: string, templates: Record<string, BikeTemplate>): ModelSetup | undefined {
+  const own = templates[bikeId]?.model
+  if (own) return own
+  const make = bikeById(bikeId).make
+  return Object.values(templates).find((t) => t.model && bikeById(t.bikeId).make === make)?.model
+}
+
 export function panelsFor(cfg: { bikeId: string }) {
   const m = makeInfo(bikeById(cfg.bikeId).make)
   return panelSet(useTemplates.getState().templates[cfg.bikeId], m.shroudLift, m.tailRise)
@@ -505,7 +515,7 @@ export function builtInTemplate(cfg: { bikeId: string }): BikeTemplate {
       for (const seg of segs) {
         // World → layout: right side on the left half, mirrored on the right.
         const pts = seg.map((s) => (s.length === 5 ? [s[3], s[4]] : [s[1], s[2]]) as [number, number])
-        const outline = pts.map(([x, y]) => [side === 'right' ? (x - 1.3) * k : (1.3 - x) * k + 2700, (1.5 - y) * k] as [number, number])
+        const outline = pts.map(([x, y]) => [side === 'right' ? (x - 1.3) * k : (1.3 - x) * k, (1.5 - y) * k] as [number, number])
         const xs = outline.map((q) => q[0])
         const ys = outline.map((q) => q[1])
         const bbox = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }

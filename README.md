@@ -34,6 +34,11 @@ Outline copies for four models are already included in `public/templates/` (Hond
 
 Each bike can show a real 3D model instead of the built-in bike. Upload a `.glb` in `/admin` → the bike → **3D model**, then press **Auto-place on model** and fine-tune by dragging.
 
+One model per brand is enough: every bike of the same make without its own model shows that brand's model (all Husqvarnas use the Husqvarna model), while each bike's own template still decides the printed pieces. To line a template's pieces up exactly on the brand model, open it in `/admin` and press **Use the <brand> model**.
+
+- Phones load a lighter copy with smaller textures when the template sets `model.mobileUrl` (make one with `python3 tools/glb_lite.py in.glb out-m.glb 512`).
+- The front fender is projected from above; its area on the model is found automatically.
+
 - Any model works, with no special UVs needed. If it has a material named like `livery` or `plastic`, only that material gets the graphics, and its original artwork is replaced by the chosen plastics colour.
 - Other formats: `.usdz` → `tools/usd2glb.py` (needs `pip install usd-core numpy pillow`), then `npx gltfpack -i in.glb -o out.glb -cc` to compress. FBX/OBJ: export as glTF Binary from Blender.
 - Bundled: `public/models/husq-tcfc-16.glb` (2022 Husqvarna FS 450, converted from the supplied USDZ). Check the source licence allows commercial use before launch.

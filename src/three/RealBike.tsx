@@ -15,8 +15,9 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
-import { ensureAssets, paintDecalSheet, paintFrontPlate, sheetWidth, WORLD } from '../lib/graphics'
-import { modelUrl, panelSet, resolveModel, sideOutlines, type BikeTemplate, type ModelSetup, type Role } from '../lib/templates'
+import { ensureAssets, paintDecalSheet, paintFrontPlate, paintSheet, sheetWidth, WORLD } from '../lib/graphics'
+import { FRONT_WHEEL } from '../lib/shapes'
+import { invert, modelUrl, mul6, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
 import { plasticsHex, platesOnly, type KitConfig } from '../store/config'
 
@@ -25,6 +26,8 @@ const FIT = { x0: -1.2, x1: 1.17 }
 const CAM_Z = 3
 const NEAR = 0.01
 const FAR = 6
+// Half the width (world z) seen by the top camera.
+const TOP_Z = 0.35
 // Parts that never carry graphics, matched on mesh or material names.
 const NO_DECAL = /tyre|tire|wheel|rim|spoke|hub|chain|sprocket|exhaust|pipe|muffler|silencer|engine|cylinder|brake|disc|rotor|caliper|frame|chassis|swing|shock|spring|fork(?!.?guard)|handle|bar|grip|lever|chrome|metal|bolt|screw|seat/i
 
@@ -95,23 +98,28 @@ function sideCams() {
   left.position.set(0, 0, -CAM_Z)
   left.lookAt(0, 0, 0)
   const front = new THREE.OrthographicCamera(-0.6, 0.6, y1, y0, NEAR, FAR)
+  // From above (for the front fender): screen x = world x, screen y = -world z.
+  const top = new THREE.OrthographicCamera(x0, x1, TOP_Z, -TOP_Z, NEAR, FAR)
+  top.position.set(0, CAM_Z, 0)
+  top.up.set(0, 0, -1)
+  top.lookAt(0, 0, 0)
   front.position.set(CAM_Z, 0, 0)
   front.lookAt(0, 0, 0)
-  for (const c of [right, left, front]) c.updateMatrixWorld(true)
-  return { right, left, front }
+  for (const c of [right, left, front, top]) c.updateMatrixWorld(true)
+  return { right, left, front, top }
 }
 
 interface Projector {
   uniforms: Record<string, THREE.IUniform>
-  sheets: { right: HTMLCanvasElement; left: HTMLCanvasElement; plate: HTMLCanvasElement }
+  sheets: { right: HTMLCanvasElement; left: HTMLCanvasElement; plate: HTMLCanvasElement; fender: HTMLCanvasElement; art: HTMLCanvasElement }
   textures: THREE.Texture[]
-  depth: { right: THREE.WebGLRenderTarget; left: THREE.WebGLRenderTarget; front: THREE.WebGLRenderTarget }
+  depth: { right: THREE.WebGLRenderTarget; left: THREE.WebGLRenderTarget; front: THREE.WebGLRenderTarget; top: THREE.WebGLRenderTarget }
 }
 
 function makeProjector(): Projector {
   const W = sheetWidth()
   const canvas = (w: number, h: number) => Object.assign(document.createElement('canvas'), { width: w, height: h })
-  const sheets = { right: canvas(W, W / 2), left: canvas(W, W / 2), plate: canvas(W / 4, W / 4) }
+  const sheets = { right: canvas(W, W / 2), left: canvas(W, W / 2), plate: canvas(W / 4, W / 4), fender: canvas(W / 4, W / 4), art: canvas(W / 2, W / 4) }
   const tex = (c: HTMLCanvasElement) => {
     const t = new THREE.CanvasTexture(c)
     t.colorSpace = THREE.SRGBColorSpace
@@ -121,17 +129,22 @@ function makeProjector(): Projector {
   const tR = tex(sheets.right)
   const tL = tex(sheets.left)
   const tP = tex(sheets.plate)
+  const tF = tex(sheets.fender)
   const D = 1024
-  const depth = { right: depthTarget(D, D / 2), left: depthTarget(D, D / 2), front: depthTarget(D / 2, D / 2) }
+  const depth = { right: depthTarget(D, D / 2), left: depthTarget(D, D / 2), front: depthTarget(D / 2, D / 2), top: depthTarget(D, Math.round((D * TOP_Z * 2) / (WORLD.x1 - WORLD.x0))) }
   const { x0, x1, y0, y1 } = WORLD
   return {
     sheets,
-    textures: [tR, tL, tP],
+    textures: [tR, tL, tP, tF],
     depth,
     uniforms: {
       uSheetR: { value: tR },
       uSheetL: { value: tL },
       uPlate: { value: tP },
+      uFender: { value: tF },
+      uDepthT: { value: depth.top.depthTexture },
+      // Front fender area seen from above: x from, x to, half width, on.
+      uFenderRect: { value: new THREE.Vector4(0, 0, 0, 0) },
       uDepthR: { value: depth.right.depthTexture },
       uDepthL: { value: depth.left.depthTexture },
       uDepthF: { value: depth.front.depthTexture },
@@ -164,7 +177,8 @@ function patchMaterial(m: THREE.Material, P: Projector, livery: boolean) {
         `#include <common>
 varying vec3 vDecalPos;
 varying vec3 vDecalNormal;
-uniform sampler2D uSheetR, uSheetL, uPlate, uDepthR, uDepthL, uDepthF;
+uniform sampler2D uSheetR, uSheetL, uPlate, uFender, uDepthR, uDepthL, uDepthF, uDepthT;
+uniform vec4 uFenderRect;
 uniform vec4 uWorld;
 uniform vec3 uCam, uPlateRect, uFinish;
 uniform float uOn;
@@ -198,6 +212,16 @@ if (uOn > 0.5) {
     vec2 fuv = vec2((-vDecalPos.z + 0.6) / 1.2, v);
     if (abs((uCam.x - vDecalPos.x) - camDist(uDepthF, fuv)) < tol * 1.5) dec = vec4(texture2D(uPlate, pr).rgb, 1.0);
   }
+  // Front fender, projected from above.
+  vec4 fr = uFenderRect;
+  if (fr.w > 0.5 && vDecalNormal.y > 0.2 && vDecalPos.x > fr.x && vDecalPos.x < fr.y && abs(vDecalPos.z) < fr.z) {
+    vec2 tuv = vec2(0.5 - vDecalPos.z / (2.0 * fr.z), 1.0 - (vDecalPos.x - fr.x) / (fr.y - fr.x));
+    vec2 duv = vec2((vDecalPos.x - uWorld.x) / ww, (-vDecalPos.z + ${TOP_Z.toFixed(3)}) / ${(TOP_Z * 2).toFixed(3)});
+    if (abs((uCam.x - vDecalPos.y) - camDist(uDepthT, duv)) < tol * 1.5) {
+      vec4 f = texture2D(uFender, tuv);
+      dec = vec4(mix(dec.rgb, f.rgb, f.a), max(dec.a, f.a));
+    }
+  }
   decalA = dec.a;
   diffuseColor.rgb = mix(diffuseColor.rgb, dec.rgb, decalA);
 }`,
@@ -209,7 +233,56 @@ if (uOn > 0.5) {
   m.needsUpdate = true
 }
 
-function loadModel(url: string) {
+// The front fender on the model: printed plastic above the front wheel and
+// below the handlebars, in front of the number plate.
+function findFender(root: THREE.Object3D) {
+  const decalOn = isDecalSurface(root)
+  const v = new THREE.Vector3()
+  let x0 = Infinity
+  let x1 = -Infinity
+  let w = 0
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh
+    if (!mesh.isMesh || ![mesh.material].flat().some((m) => decalOn(mesh, m))) return
+    const pos = mesh.geometry.attributes.position
+    for (let i = 0; i < pos.count; i += 2) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld)
+      if (v.x < FRONT_WHEEL.x - 0.3 || v.y < FRONT_WHEEL.y + 0.45 || v.y > FRONT_WHEEL.y + 0.85 || Math.abs(v.z) > 0.25) continue
+      x0 = Math.min(x0, v.x)
+      x1 = Math.max(x1, v.x)
+      w = Math.max(w, Math.abs(v.z))
+    }
+  })
+  return x1 - x0 > 0.15 ? { x0, x1, w: w * 1.05 } : null
+}
+
+// The template's front fender piece, as it is printed, laid flat into the
+// fender sheet: the top of the piece towards the back of the bike.
+function paintFender(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: ReturnType<typeof panelSet>) {
+  const c = P.sheets.fender
+  const ctx = c.getContext('2d')!
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, c.width, c.height)
+  const piece = t.pieces.find((p) => p.role === 'frontFender' && p.side === 'center') ?? t.pieces.find((p) => p.role === 'frontFender')
+  if (!piece || platesOnly(cfg)) return
+  paintSheet(P.sheets.art, cfg, 'right', panels)
+  const { x, y, w, h } = piece.bbox
+  // Template → fender sheet (long side of the piece along the sheet's height).
+  const S: M6 = h >= w ? [c.width / w, 0, 0, c.height / h, (-x * c.width) / w, (-y * c.height) / h] : [0, c.height / w, c.width / h, 0, (-y * c.width) / h, (-x * c.height) / w]
+  ctx.save()
+  ctx.setTransform(...S)
+  ctx.beginPath()
+  piece.outline.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)))
+  ctx.closePath()
+  ctx.clip()
+  const k = (WORLD.x1 - WORLD.x0) / P.sheets.art.width
+  const m = mul6(mul6(S, invert(pieceToWorld(piece, t.pieces))), [k, 0, 0, -k, WORLD.x0, WORLD.y1])
+  ctx.setTransform(...m)
+  ctx.drawImage(P.sheets.art, 0, 0)
+  ctx.restore()
+}
+
+function useModel(url: string) {
   return useLoader(GLTFLoader, url, (loader) => {
     const draco = new DRACOLoader()
     draco.setDecoderPath(dracoUrl)
@@ -219,9 +292,11 @@ function loadModel(url: string) {
 }
 
 export default function RealBike({ cfg, template }: { cfg: KitConfig; template: BikeTemplate & { model: ModelSetup } }) {
-  const gltf = loadModel(use(resolveModel(modelUrl(template.model))))
+  const gltf = useModel(use(resolveModel(modelUrl(template.model))))
   const gl = useThree((s) => s.gl)
   const P = useMemo(makeProjector, [])
+  // Development only: lets tests inspect the projection.
+  if (import.meta.env.DEV) Object.assign(window, { __cdlProjector: P })
 
   // Our own copy of the scene with patched materials, fitted to world space.
   const root = useMemo(() => {
@@ -256,7 +331,7 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
     const parent = root.parent
     scene.add(root)
     const prev = gl.getRenderTarget()
-    for (const k of ['right', 'left', 'front'] as const) {
+    for (const k of ['right', 'left', 'front', 'top'] as const) {
       gl.setRenderTarget(P.depth[k])
       gl.clear()
       gl.render(scene, cams[k])
@@ -265,6 +340,9 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
     scene.remove(root)
     parent?.add(root)
     P.uniforms.uPlateRect.value.set(plate.y, plate.w, plate.h)
+    const f = findFender(root)
+    if (f) P.uniforms.uFenderRect.value.set(f.x0, f.x1, f.w, 1)
+    else P.uniforms.uFenderRect.value.set(0, 0, 0, 0)
     P.uniforms.uOn.value = 1
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [root, gl, P, yaw, scale, dx, dy, plate.y, plate.w, plate.h])
@@ -279,6 +357,7 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
       paintDecalSheet(P.sheets.right, cfg, 'right', sideOutlines(template, 'right', roles), panels)
       paintDecalSheet(P.sheets.left, cfg, 'left', sideOutlines(template, 'left', roles), panels)
       paintFrontPlate(P.sheets.plate, cfg)
+      paintFender(P, cfg, template, panels)
       for (const t of P.textures) t.needsUpdate = true
     }
     paint()

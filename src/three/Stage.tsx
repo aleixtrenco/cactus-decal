@@ -1,9 +1,9 @@
 import { CameraControls, ContactShadows, Environment, Lightformer } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Component, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type * as THREE from 'three'
 import type { KitConfig } from '../store/config'
-import { isHandheld, useTemplates, type ModelSetup } from '../lib/templates'
+import { builtInTemplate, isHandheld, modelFor, useTemplates } from '../lib/templates'
 import Bike from './Bike'
 import RealBike from './RealBike'
 
@@ -123,11 +123,15 @@ export default function Stage({
 
 // The real 3D model when this bike has one, otherwise the built-in bike.
 function BikeFor({ cfg }: { cfg: KitConfig }) {
-  const t = useTemplates((s) => s.templates[cfg.bikeId])
-  if (t?.model)
+  const templates = useTemplates((s) => s.templates)
+  const own = templates[cfg.bikeId]
+  const model = modelFor(cfg.bikeId, templates)
+  // The bike's own pieces (or the standard layout) on its brand's model.
+  const template = useMemo(() => (model ? { ...(own ?? builtInTemplate(cfg)), model } : null), [own, model, cfg.bikeId]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (template)
     return (
-      <ModelFallback key={t.model.url} fallback={<Bike cfg={cfg} />}>
-        <RealBike cfg={cfg} template={t as typeof t & { model: ModelSetup }} />
+      <ModelFallback key={template.model.url} fallback={<Bike cfg={cfg} />}>
+        <RealBike cfg={cfg} template={template} />
       </ModelFallback>
     )
   return <Bike cfg={cfg} />

@@ -2652,3 +2652,151 @@ p {
 .viewer[data-main='design'] .viewer-canvas .stage-fallback p {
   display: none;
 }
+/* Keep the camera buttons clear of the corner view. */
+.viewer[data-main='3d'] .views {
+  left: 16px;
+  transform: none;
+  max-width: calc(100% - clamp(150px, 28%, 340px) - 48px);
+}
+@media (max-width: 960px) {
+  .viewer[data-main='3d'] .views {
+    left: 10px;
+    max-width: calc(100% - 34% - 30px);
+  }
+}
+
+/* Panel picker (Graphics step) */
+.panel-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+}
+.panel-pick {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--ink-3);
+  color: var(--text);
+  transition: border-color 0.2s, background 0.2s;
+}
+.panel-pick:hover {
+  border-color: var(--line-strong);
+}
+.panel-pick[aria-pressed='true'] {
+  border-color: var(--cactus);
+  background: rgba(140, 214, 58, 0.1);
+}
+.panel-pick b {
+  font-size: 15px;
+}
+.panel-pick small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.layer-name img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  margin-right: 10px;
+  vertical-align: middle;
+  background: #f4f4f2;
+  border-radius: 4px;
+}
+
+/* Designer: what is being designed, handles and quick tools */
+.editing-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(140, 214, 58, 0.14);
+  border: 1px solid rgba(140, 214, 58, 0.5);
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.editing-pill b {
+  color: var(--cactus);
+}
+.designer-sel .grip {
+  pointer-events: all;
+  fill: #f2f0e8;
+  stroke: var(--cactus);
+  stroke-width: 2;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.designer-sel .grip.turn {
+  cursor: grab;
+}
+.designer-sel .grip-line {
+  stroke: var(--cactus);
+  stroke-width: 1.5;
+}
+.sel-tools {
+  position: absolute;
+  z-index: 4;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: rgba(11, 12, 9, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+}
+.sel-tools button,
+.sel-color {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sel-tools button:hover,
+.sel-color:hover {
+  background: rgba(242, 240, 232, 0.1);
+}
+.sel-color {
+  position: relative;
+}
+.sel-color span {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--text);
+}
+.sel-color input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+@media (max-width: 960px) {
+  .editing-pill {
+    min-height: 30px;
+    padding: 0 10px;
+    font-size: 11px;
+  }
+}
+.layer-name:has(img) {
+  display: flex;
+  align-items: center;
+}
+.layer-name img {
+  flex: none;
+}

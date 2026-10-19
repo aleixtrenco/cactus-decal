@@ -289,10 +289,10 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
 
   const [vx, vy, vw, vh] = t.viewBox
   const bleed = vw * 0.002
-  // Lettering (number, name, make, logos) only on the pieces it belongs to.
+  // Lettering and customer layers only on the main pieces, not on trim.
   const panels = panelsFor(cfg)
   const art = (side: Side, lettering: boolean) => record(f, SHEET_W, SHEET_W / 2, (c) => paintSheet(c, cfg, side, panels, { lettering }))
-  const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender']
+  const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
   const big = `x="${n(vx - vw)}" y="${n(vy - vh)}" width="${n(vw * 3)}" height="${n(vh * 3)}"`
 
   const defs: string[] = [
