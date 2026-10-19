@@ -9,7 +9,7 @@ import Stripe from 'stripe'
 import { ACCESS } from './_lib.js'
 import { bikeById } from '../src/data/bikes.js'
 import { designById } from '../src/data/designs.js'
-import { EXTRAS, FINISHES, KITS, MATERIALS, priceLines, type ExtraId, type FinishId, type KitId, type MaterialId } from '../src/data/pricing.js'
+import { EXTRAS, FINISHES, MATERIALS, priceLines, type ExtraId, type FinishId, type MaterialId } from '../src/data/pricing.js'
 import { NEON_HEXES } from '../src/data/designs.js'
 
 const pick = <T extends string>(v: unknown, allowed: Record<T, unknown>, fallback: T): T =>
@@ -25,7 +25,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body
   const c = body?.config ?? {}
 
-  const kit = pick<KitId>(c.kit, KITS, 'full')
   const finish = pick<FinishId>(c.finish, FINISHES, 'gloss')
   const material = pick<MaterialId>(c.material, MATERIALS, 'standard')
   const extras = (Array.isArray(c.extras) ? c.extras : []).filter((x: unknown): x is ExtraId => typeof x === 'string' && x in EXTRAS)
@@ -34,7 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const bike = bikeById(clip(c.bikeId, 40))
   const design = designById(c.designId)
-  const lines = priceLines({ kit, finish, material, extras, usesNeon })
+  const lines = priceLines({ bikeType: bike.type, finish, material, extras, usesNeon })
 
   const origin = req.headers.origin ?? `https://${req.headers.host}`
   const stripe = new Stripe(key)

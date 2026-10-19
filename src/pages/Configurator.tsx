@@ -4,12 +4,13 @@ import { useSearchParams } from 'react-router-dom'
 import { Contours, Header } from '../components/Chrome'
 import Icon from '../components/Icon'
 import { AnimatedNumber, LazyStage, ProofCanvas } from '../components/bits'
-import { BIKES, MAKES, bikeById, type Make } from '../data/bikes'
+import { BIKES, MAKES, bikeById, typeLabel, type Make } from '../data/bikes'
 import { DESIGNS, LOGO_SLOTS, NUMBER_FONTS, SWATCHES, designById, swatchName, type LogoSlot, type NumberFont, type Palette } from '../data/designs'
 import {
   EXTRAS,
   FINISHES,
-  KITS,
+  KIT_PARTS,
+  KIT_PRICES,
   MATERIALS,
   NEON_SURCHARGE,
   formatAED,
@@ -17,7 +18,6 @@ import {
   priceTotal,
   type ExtraId,
   type FinishId,
-  type KitId,
   type MaterialId,
 } from '../data/pricing'
 import { decodeConfig, encodeConfig } from '../lib/share'
@@ -245,7 +245,7 @@ function BikeStep() {
               <span>
                 <b>{b.model}</b>
                 <small>
-                  {b.years} · {b.type}
+                  {b.years} · {typeLabel(b.type)} · {formatAED(KIT_PRICES[b.type].price)}
                 </small>
               </span>
               {config.bikeId === b.id && <Icon name="check" />}
@@ -520,21 +520,18 @@ function LogoStep() {
 
 function ExtrasStep() {
   const { config, set, toggleExtra } = useConfig()
+  const bike = bikeById(config.bikeId)
   return (
     <>
-      <StepHead title="Kit & finish" lead="Choose what we print, the finish and any extras." />
+      <StepHead title="Kit & finish" lead="Every kit is fully custom. Choose the finish and any extras." />
       <div className="group">
-        <div className="group-label">What's in the kit</div>
-        <div className="options">
-          {(Object.keys(KITS) as KitId[]).map((k) => (
-            <button key={k} className="option" aria-pressed={config.kit === k} onClick={() => set({ kit: k })}>
-              <span>
-                <b>{KITS[k].label}</b>
-                <small>{KITS[k].parts}</small>
-              </span>
-              <span className="price">{formatAED(KITS[k].price)}</span>
-            </button>
-          ))}
+        <div className="group-label">Your kit</div>
+        <div className="option" aria-pressed="true" role="note">
+          <span>
+            <b>{KIT_PRICES[bike.type].label}</b>
+            <small>{KIT_PARTS}</small>
+          </span>
+          <span className="price">{formatAED(KIT_PRICES[bike.type].price)}</span>
         </div>
       </div>
       <div className="group">
@@ -569,18 +566,17 @@ function ExtrasStep() {
         <div className="group-label">Extras</div>
         <div className="options">
           {(Object.keys(EXTRAS) as ExtraId[]).map((x) => {
-            const included = x === 'forks' && config.kit === 'full'
-            const on = included || config.extras.includes(x)
+            const on = config.extras.includes(x)
             return (
-              <button key={x} className="option" role="checkbox" aria-checked={on} aria-disabled={included} onClick={() => !included && toggleExtra(x)}>
+              <button key={x} className="option" role="checkbox" aria-checked={on} onClick={() => toggleExtra(x)}>
                 <span className="tick" aria-hidden="true">
                   {on && <Icon name="check" size={14} />}
                 </span>
                 <span style={{ marginRight: 'auto' }}>
                   <b>{EXTRAS[x].label}</b>
-                  <small>{included ? 'Included with your full kit' : EXTRAS[x].note}</small>
+                  <small>{EXTRAS[x].note}</small>
                 </span>
-                <span className="price">{included ? 'Included' : `+ ${formatAED(EXTRAS[x].price)}`}</span>
+                <span className="price">+ {formatAED(EXTRAS[x].price)}</span>
               </button>
             )
           })}

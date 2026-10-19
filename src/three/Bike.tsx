@@ -152,8 +152,9 @@ export default function Bike({ cfg }: { cfg: KitConfig }) {
   const template = useTemplates((s) => s.templates[cfg.bikeId])
   const panels = useMemo(() => panelSet(template, make.shroudLift, make.tailRise), [template, make.shroudLift, make.tailRise])
   const kit = useKitMaterials(cfg, panels)
-  const fullKit = cfg.kit === 'full'
-  const halfOrMore = cfg.kit !== 'plates'
+  // Every kit covers all panels, fork guards included.
+  const fullKit = true
+  const halfOrMore = true
 
   const geo = useMemo(() => {
     const D = 0.018
@@ -211,7 +212,6 @@ export default function Bike({ cfg }: { cfg: KitConfig }) {
   const decal = (side: Side, on: boolean) => (on ? [kit.decal[side], kit.plastic] : kit.plastic)
   const rimDecals = cfg.extras.includes('rims')
   const seat = cfg.extras.includes('seat') ? cfg.colors.primary : '#141414'
-  const forkDecal = fullKit || cfg.extras.includes('forks')
   const forkAngle = Math.atan2(FRONT_WHEEL.x - 0.44, 1.1 - FRONT_WHEEL.y)
 
   const group = useRef<THREE.Group>(null)
@@ -275,7 +275,7 @@ export default function Bike({ cfg }: { cfg: KitConfig }) {
             <cylinderGeometry args={[0.026, 0.026, 0.3, 16]} />
           </mesh>
           <RoundedBox args={[0.05, 0.22, 0.03]} radius={0.01} position={[0.03, -0.58, z > 0 ? 0.02 : -0.02]}>
-            <meshStandardMaterial color={forkDecal ? cfg.colors.primary : plasticsHex(cfg)} roughness={0.4} />
+            <meshStandardMaterial color={cfg.colors.primary} roughness={0.4} />
           </RoundedBox>
         </group>
       ))}

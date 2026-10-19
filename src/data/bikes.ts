@@ -9,8 +9,12 @@ export interface BikeModel {
   make: Make
   model: string
   years: string
-  type: 'MX' | 'Enduro'
+  type: BikeType
 }
+
+// MX = motocross kit, Trail = enduro / trail kit (priced differently).
+export type BikeType = 'MX' | 'Trail'
+export const typeLabel = (t: BikeType) => (t === 'MX' ? 'Motocross' : 'Trail')
 
 export interface MakeInfo {
   make: Make
@@ -33,19 +37,21 @@ export const MAKES: MakeInfo[] = [
 
 export const BIKES: BikeModel[] = [
   { id: 'ktm-sx-23', make: 'KTM', model: 'SX / SX-F 125–450', years: '2023–2025', type: 'MX' },
-  { id: 'ktm-exc-24', make: 'KTM', model: 'EXC / EXC-F 150–500', years: '2024–2025', type: 'Enduro' },
+  { id: 'ktm-exc-24', make: 'KTM', model: 'EXC / EXC-F 150–500', years: '2024–2025', type: 'Trail' },
   { id: 'husq-tcfc-23', make: 'Husqvarna', model: 'TC / FC 125–450', years: '2023–2025', type: 'MX' },
-  { id: 'husq-tefe-24', make: 'Husqvarna', model: 'TE / FE 150–501', years: '2024–2025', type: 'Enduro' },
+  { id: 'husq-tcfc-16', make: 'Husqvarna', model: 'TC / FC / FS 125–450', years: '2016–2022', type: 'MX' },
+  { id: 'husq-tefe-24', make: 'Husqvarna', model: 'TE / FE 150–501', years: '2024–2025', type: 'Trail' },
   { id: 'gg-mc-24', make: 'GasGas', model: 'MC / MC-F 125–450', years: '2024–2025', type: 'MX' },
-  { id: 'gg-ec-24', make: 'GasGas', model: 'EC / EC-F 250–350', years: '2024–2025', type: 'Enduro' },
+  { id: 'gg-mc85-21', make: 'GasGas', model: 'MC 85', years: '2021–2024', type: 'MX' },
+  { id: 'gg-ec-24', make: 'GasGas', model: 'EC / EC-F 250–350', years: '2024–2025', type: 'Trail' },
   { id: 'yz-250f-24', make: 'Yamaha', model: 'YZ250F', years: '2024–2025', type: 'MX' },
   { id: 'yz-450f-23', make: 'Yamaha', model: 'YZ450F', years: '2023–2025', type: 'MX' },
   { id: 'yz-2t-22', make: 'Yamaha', model: 'YZ125 / YZ250', years: '2022–2025', type: 'MX' },
   { id: 'crf-250r-22', make: 'Honda', model: 'CRF250R / RX', years: '2022–2024', type: 'MX' },
   { id: 'crf-450r-21', make: 'Honda', model: 'CRF450R / RX', years: '2021–2024', type: 'MX' },
-  { id: 'crf-25', make: 'Honda', model: 'CRF250R / CRF450R', years: '2025', type: 'MX' },
-  { id: 'kx-250-21', make: 'Kawasaki', model: 'KX250', years: '2021–2025', type: 'MX' },
-  { id: 'kx-450-24', make: 'Kawasaki', model: 'KX450', years: '2024–2025', type: 'MX' },
+  { id: 'crf-25', make: 'Honda', model: 'CRF250R/RX · CRF450R/RX', years: '2025', type: 'MX' },
+  { id: 'kx-250-21', make: 'Kawasaki', model: 'KX250', years: '2021–2024', type: 'MX' },
+  { id: 'kx-25', make: 'Kawasaki', model: 'KX250 (2025) · KX450 (2024–2025)', years: '2024–2025', type: 'MX' },
   { id: 'rmz-19', make: 'Suzuki', model: 'RM-Z250 / RM-Z450', years: '2019–2025', type: 'MX' },
 ]
 

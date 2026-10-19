@@ -2021,3 +2021,43 @@ p {
     flex-direction: column;
   }
 }
+
+.mapper {
+  margin-top: 16px;
+}
+.mapper svg {
+  width: 100%;
+  height: auto;
+  background: var(--ink);
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+}
+.mapper polygon {
+  cursor: pointer;
+  transition: fill-opacity 0.2s;
+}
+.mapper polygon:hover {
+  fill-opacity: 1;
+}
+.mapper polygon:focus-visible {
+  outline: none;
+  stroke: var(--cactus);
+}
+.mapper-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 10px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.mapper-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 4px;
+}
+.mapper-edit {
+  margin-top: 8px;
+}

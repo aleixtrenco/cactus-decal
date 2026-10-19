@@ -1,91 +1,70 @@
-// Per-model SVG templates. An uploaded template replaces the built-in panel
-// outlines for that bike, in the 3D preview, the 2D proof and the print file.
+// Per-model print templates (the SVG cut files the shop already uses).
 //
-// Template rules (see README):
-// - Side view of the bike as the panels sit on it.
-// - Each panel is a closed shape named (layer/object name in Illustrator)
-//   with one of: shroud, side-plate, rear-fender, front-fender. Any other
-//   named shape is printed too but not shown in 3D.
-// - Optional front-plate: printed with the front number plate artwork.
-// - Two markers named rear-axle and front-axle (small circles) fix the scale
-//   and position. Without them the panels are fitted to the default layout.
+// Templates are flat print/cut layouts: the bike's right-side pieces on the
+// left half (fronts pointing to the middle), the left-side pieces mirrored on
+// the right half, and centre pieces (front plate, front fender) in between.
+// Pieces don't need names: each closed shape is detected, given a role
+// automatically (shroud, side plate, ...) and can be corrected in /admin.
+//
+// Every piece gets a transform into the bike's side-view "world" (see
+// graphics.ts). That is how one design flows across all pieces, how the
+// real outlines appear on the 3D bike, and how the print file is built.
 
 import { create } from 'zustand'
 import { bikeById, makeInfo } from '../data/bikes'
-import { FRONT_WHEEL, REAR_WHEEL, frontFender, rearFender, shroud, sidePlate, type Seg } from './shapes'
+import { frontFender, rearFender, shroud, sidePlate, type Seg } from './shapes'
 
-export type Slot = 'shroud' | 'sidePlate' | 'rearFender' | 'frontFender' | 'frontPlate' | 'other'
+export type Role = 'shroud' | 'sidePlate' | 'rearFender' | 'frontFender' | 'frontPlate' | 'other' | 'ignore'
+export type PieceSide = 'right' | 'left' | 'center'
 
-export interface TemplatePanel {
-  name: string
-  slot: Slot
-  // Outline in world units (bike faces +x, ground y = 0), as polyline.
-  seg: Seg[]
+export const ROLE_LABELS: Record<Role, string> = {
+  shroud: 'Shroud',
+  sidePlate: 'Side plate',
+  rearFender: 'Rear fender',
+  frontFender: 'Front fender',
+  frontPlate: 'Front plate',
+  other: 'Other piece',
+  ignore: "Don't print",
+}
+
+type Pt = [number, number]
+interface Box {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface TemplatePiece {
+  // Index among the template's closed shapes, in document order.
+  id: number
+  role: Role
+  side: PieceSide
+  // Piece this one sits on top of (artwork lines up with the parent).
+  parent?: number
+  // Outer contour in template coordinates (simplified).
+  outline: Pt[]
+  bbox: Box
+  area: number
 }
 
 export interface BikeTemplate {
   bikeId: string
   fileName: string
-  svgUrl?: string
-  // Raw SVG text, kept in memory for print export when there is no URL.
+  // Full SVG, kept for print files. Never published to the public site.
   svgText?: string
-  // Template-space → world affine: x' = a*x + c*y + e, y' = b*x + d*y + f
-  toWorld: [number, number, number, number, number, number]
-  side: 'right' | 'left'
-  hasAxles: boolean
-  panels: TemplatePanel[]
+  // Set when the original SVG is stored privately (published from /admin).
+  svgUrl?: string
+  viewBox: [number, number, number, number]
+  pieces: TemplatePiece[]
   updatedAt: string
-}
-
-const SLOT_MATCHERS: [Slot, RegExp][] = [
-  ['frontPlate', /front.?(number.?)?plate|number.?plate.?front|front.?no/],
-  ['sidePlate', /side.?(number.?)?plate|side.?panel|number.?plate|sideplate/],
-  ['shroud', /shroud|radiator|rad.?wing/],
-  ['rearFender', /rear.?fender|rear.?mud|fender.?rear|tail/],
-  ['frontFender', /front.?fender|fender.?front|front.?mud/],
-]
-
-const IGNORE = /axle|ignore|guide|bleed|background|^bg$|reference|^ref/
-
-// Illustrator escapes characters in ids (e.g. "_x5F_" for "_").
-function cleanName(raw: string) {
-  return raw
-    .replace(/_x([0-9a-f]{2})_/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
-    .replace(/_\d+_$/, '')
-    .toLowerCase()
-    .trim()
-}
-
-export function nameOf(el: Element): string {
-  // Walk up so shapes inside a named group/layer inherit its name.
-  for (let e: Element | null = el; e && e.tagName.toLowerCase() !== 'svg'; e = e.parentElement) {
-    const n = e.getAttribute('data-name') || e.getAttribute('inkscape:label') || e.getAttribute('id')
-    if (n) return cleanName(n)
-  }
-  return ''
-}
-
-export function slotFor(name: string): Slot | null {
-  if (!name || IGNORE.test(name)) return null
-  for (const [slot, re] of SLOT_MATCHERS) if (re.test(name)) return slot
-  return 'other'
 }
 
 type Mat = DOMMatrix
 
-function samplePath(el: SVGGeometryElement, ctm: Mat): [number, number][] {
-  const len = el.getTotalLength()
-  const n = Math.max(24, Math.min(400, Math.round(len / 2)))
-  const pts: [number, number][] = []
-  for (let i = 0; i <= n; i++) {
-    const p = el.getPointAtLength((len * i) / n)
-    const q = new DOMPoint(p.x, p.y).matrixTransform(ctm)
-    pts.push([q.x, q.y])
-  }
-  return pts
-}
+// ---------- Reading SVGs ----------
 
-// Mounts the SVG off-screen so the browser resolves transforms and units.
+// Mounts the SVG off-screen so the browser resolves CSS, transforms and units.
 export function mount(svgText: string) {
   const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml')
   if (doc.querySelector('parsererror')) throw new Error('This file is not a valid SVG.')
@@ -106,87 +85,230 @@ export function toRoot(el: SVGGraphicsElement, svg: SVGSVGElement): Mat {
   return b.inverse().multiply(a)
 }
 
-function centreOf(el: SVGGraphicsElement, svg: SVGSVGElement) {
-  const bb = el.getBBox()
-  return new DOMPoint(bb.x + bb.width / 2, bb.y + bb.height / 2).matrixTransform(toRoot(el, svg))
+const SHAPES = 'path, polygon, rect, ellipse, circle, polyline'
+
+// (The SVG is mounted hidden, so visibility can't be used here.)
+const isFilled = (el: Element) => {
+  const cs = getComputedStyle(el)
+  return cs.fill !== 'none' && cs.fillOpacity !== '0'
 }
 
-const DEFAULT_SLOTS: Partial<Record<Slot, Seg[]>> = {
-  shroud: shroud(),
-  sidePlate: sidePlate(),
-  rearFender: rearFender(),
-  frontFender: frontFender(),
+// The closed shapes that make up the kit, in a stable order. Cut-line copies
+// (unfilled strokes on top of a filled piece) are skipped.
+export function pieceElements(svg: SVGSVGElement): SVGGeometryElement[] {
+  const all = [...svg.querySelectorAll(SHAPES)].filter((e) => !e.closest('defs, clipPath, mask, symbol')) as SVGGeometryElement[]
+  const filled = all.filter(isFilled)
+  return filled.length ? filled : all
 }
 
-function bboxOf(points: [number, number][]) {
+function polyArea(p: Pt[]) {
+  let a = 0
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) a += (p[j][0] + p[i][0]) * (p[j][1] - p[i][1])
+  return Math.abs(a / 2)
+}
+
+function boxOf(p: Pt[]): Box {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-  for (const [x, y] of points) {
+  for (const [x, y] of p) {
     x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y)
   }
-  return { x0, y0, x1, y1 }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
 }
 
-const segPoints = (s: Seg[]) => s.map((p) => (p.length === 5 ? [p[3], p[4]] : [p[1], p[2]]) as [number, number])
+function resample(p: Pt[], n: number): Pt[] {
+  if (p.length <= n) return p
+  const step = p.length / n
+  return Array.from({ length: n }, (_, i) => p[Math.floor(i * step)])
+}
+
+// Samples a shape and keeps its outer contour (holes and extra sub-paths are
+// split off where the sampled outline jumps).
+function outerContour(el: SVGGeometryElement, m: Mat): Pt[] {
+  const len = el.getTotalLength()
+  if (!len) return []
+  const n = Math.max(80, Math.min(2400, Math.round(len * 2)))
+  const step = len / n
+  const runs: Pt[][] = [[]]
+  let prev: DOMPoint | null = null
+  for (let i = 0; i <= n; i++) {
+    const p = el.getPointAtLength((len * i) / n)
+    if (prev && Math.hypot(p.x - prev.x, p.y - prev.y) > step * 2.5) runs.push([])
+    prev = p
+    const q = new DOMPoint(p.x, p.y).matrixTransform(m)
+    runs[runs.length - 1].push([q.x, q.y])
+  }
+  const best = runs.filter((r) => r.length > 2).sort((a, b) => polyArea(b) - polyArea(a))[0] ?? []
+  return resample(best, 220).map(([x, y]) => [+x.toFixed(2), +y.toFixed(2)] as Pt)
+}
+
+// ---------- Automatic roles ----------
+
+function inside([x, y]: Pt, poly: Pt[]) {
+  let hit = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]
+    const [xj, yj] = poly[j]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hit = !hit
+  }
+  return hit
+}
+
+// A piece printed on top of another (a layered decal) lies mostly inside it.
+const liesOn = (small: TemplatePiece, big: TemplatePiece) => small.outline.filter((p) => inside(p, big.outline)).length >= small.outline.length * 0.7
+
+const rel = (a: number, b: number) => Math.abs(a - b) / Math.max(a, b, 1e-9)
+const sameSize = (a: TemplatePiece, b: TemplatePiece, tol: number) => rel(a.bbox.w, b.bbox.w) < tol && rel(a.bbox.h, b.bbox.h) < tol && rel(a.area, b.area) < 0.3
+
+// Mirror axis: the midpoint of the biggest matching pair at the same height
+// (normally the two shrouds).
+function mirrorAxis(pieces: TemplatePiece[], width: number, fallback: number) {
+  const big = [...pieces].sort((a, b) => b.area - a.area).slice(0, 16)
+  for (let i = 0; i < big.length; i++)
+    for (let j = i + 1; j < big.length; j++) {
+      const a = big[i]
+      const b = big[j]
+      if (sameSize(a, b, 0.12) && Math.abs(a.bbox.y - b.bbox.y) < a.bbox.h * 0.2 && Math.abs(a.bbox.x - b.bbox.x) > width * 0.2)
+        return (a.bbox.x + a.bbox.w / 2 + b.bbox.x + b.bbox.w / 2) / 2
+    }
+  return fallback
+}
+
+export function autoAssign(pieces: TemplatePiece[]): TemplatePiece[] {
+  const out = pieces.map((p) => ({ ...p, role: 'other' as Role, side: 'center' as PieceSide, parent: undefined as number | undefined }))
+  if (!out.length) return out
+  const all = boxOf(out.flatMap((p) => [[p.bbox.x, p.bbox.y], [p.bbox.x + p.bbox.w, p.bbox.y + p.bbox.h]] as Pt[]))
+  const axis = mirrorAxis(out, all.w, all.x + all.w / 2)
+  const cx = (p: TemplatePiece) => p.bbox.x + p.bbox.w / 2
+  const cy = (p: TemplatePiece) => p.bbox.y + p.bbox.h / 2
+
+  // Pieces sitting on a bigger piece follow it.
+  for (const p of out) {
+    const host = out.filter((q) => q !== p && q.area > p.area * 1.3 && liesOn(p, q)).sort((a, b) => a.area - b.area)[0]
+    if (host) p.parent = host.id
+  }
+  const top = out.filter((p) => p.parent === undefined)
+  for (const p of top) {
+    const d = cx(p) - axis
+    // Fronts point to the middle: the left half shows the bike's right side.
+    p.side = Math.abs(d) < all.w * 0.05 ? 'center' : d < 0 ? 'right' : 'left'
+  }
+
+  // Front plate: a squarish, sizeable piece near the top and the middle
+  // (some layouts put it off to one side).
+  const plateScore = (p: TemplatePiece) => {
+    const aspect = p.bbox.w / p.bbox.h
+    if (aspect < 0.7 || aspect > 1.45) return 0
+    return p.area / (1 + (4 * Math.abs(cx(p) - axis)) / all.w) / (1 + (2 * (cy(p) - all.y)) / all.h)
+  }
+  const plate = [...top].sort((a, b) => plateScore(b) - plateScore(a))[0]
+  if (plate && plateScore(plate) > 0) {
+    plate.role = 'frontPlate'
+    plate.side = 'center'
+  }
+  // Front fender: the biggest piece in the centre column.
+  const fender = top.filter((p) => p.side === 'center' && p.role === 'other').sort((a, b) => b.area - a.area)[0]
+  if (fender) fender.role = 'frontFender'
+
+  // Upper row of a half holds shroud (nearest the middle), rear fender
+  // (outermost) and side plate (the biggest of the rest).
+  const band = all.y + all.h * 0.6
+  const assignHalf = (side: 'right' | 'left', want: Role[]) => {
+    const half = top.filter((p) => p.side === side && p.role === 'other' && cy(p) < band)
+    const maxA = Math.max(0, ...top.filter((p) => p.side === side && cy(p) < band).map((p) => p.area))
+    const big = half.filter((p) => p.area >= maxA * 0.2)
+    const byDist = [...big].sort((a, b) => Math.abs(cx(a) - axis) - Math.abs(cx(b) - axis))
+    if (want.includes('shroud') && byDist.length) byDist.shift()!.role = 'shroud'
+    if (want.includes('rearFender') && byDist.length) byDist.pop()!.role = 'rearFender'
+    const rest = byDist.sort((a, b) => b.area - a.area)[0]
+    if (want.includes('sidePlate') && rest) rest.role = 'sidePlate'
+  }
+  const ROW: Role[] = ['shroud', 'sidePlate', 'rearFender']
+  assignHalf('right', ROW)
+  // The left half mirrors the right: match each piece to its twin first.
+  const mirrorX = (p: TemplatePiece) => 2 * axis - cx(p)
+  for (const r of top.filter((p) => p.side === 'right' && ROW.includes(p.role))) {
+    const twin = top
+      .filter((p) => p.side === 'left' && p.role === 'other' && sameSize(p, r, 0.15))
+      .sort((a, b) => Math.abs(mirrorX(a) - cx(r)) + Math.abs(cy(a) - cy(r)) - (Math.abs(mirrorX(b) - cx(r)) + Math.abs(cy(b) - cy(r))))[0]
+    if (twin) twin.role = r.role
+  }
+  assignHalf('left', ROW.filter((r) => !top.some((p) => p.side === 'left' && p.role === r)))
+  for (const p of out) if (p.parent !== undefined) p.side = out.find((q) => q.id === p.parent)!.side
+  return out
+}
 
 export interface ParseResult {
   template: BikeTemplate
   warnings: string[]
 }
 
+export function readPieces(svg: SVGSVGElement): TemplatePiece[] {
+  const els = pieceElements(svg)
+  const pieces: TemplatePiece[] = []
+  els.forEach((el, id) => {
+    const outline = outerContour(el, toRoot(el, svg))
+    if (outline.length < 3) return
+    pieces.push({ id, role: 'other', side: 'center', outline, bbox: boxOf(outline), area: polyArea(outline) })
+  })
+  // Drop exact duplicates (e.g. a fill and its cut line exported twice).
+  const W = boxOf(pieces.flatMap((p) => p.outline)).w || 1
+  return pieces.filter((p, i) => !pieces.slice(0, i).some((q) => Math.abs(q.bbox.x - p.bbox.x) + Math.abs(q.bbox.y - p.bbox.y) + Math.abs(q.bbox.w - p.bbox.w) + Math.abs(q.bbox.h - p.bbox.h) < W * 0.002))
+}
+
 export function parseTemplate(svgText: string, bikeId: string, fileName: string): ParseResult {
   const { svg, done } = mount(svgText)
   const warnings: string[] = []
   try {
-    const shapes = [...svg.querySelectorAll('path, polygon, rect, ellipse, circle, polyline')] as SVGGeometryElement[]
-    let rear: DOMPoint | null = null
-    let front: DOMPoint | null = null
-    const raw: { name: string; slot: Slot; pts: [number, number][] }[] = []
-    for (const el of shapes) {
-      const name = nameOf(el)
-      if (/rear.?axle|axle.?rear|rear.?wheel.?(centre|center)/.test(name)) rear = centreOf(el, svg)
-      else if (/front.?axle|axle.?front|front.?wheel.?(centre|center)/.test(name)) front = centreOf(el, svg)
-      const slot = slotFor(name)
-      if (!slot) continue
-      if (el.getAttribute('fill') === 'none' && !el.getAttribute('stroke')) continue
-      raw.push({ name, slot, pts: samplePath(el, toRoot(el, svg)) })
-    }
-    if (!raw.length) throw new Error('No panels found. Name each panel shape (e.g. "shroud", "side-plate") in your SVG.')
-
-    for (const slot of ['shroud', 'sidePlate'] as Slot[])
-      if (!raw.some((r) => r.slot === slot)) warnings.push(`No "${slot === 'sidePlate' ? 'side-plate' : slot}" panel found. The 3D preview uses the default shape for it.`)
-
-    // Template space has y pointing down. Build template → world.
-    let toWorld: BikeTemplate['toWorld']
-    let side: 'right' | 'left'
-    if (rear && front) {
-      side = front.x > rear.x ? 'right' : 'left'
-      const dt = Math.hypot(front.x - rear.x, front.y - rear.y)
-      const dw = FRONT_WHEEL.x - REAR_WHEEL.x
-      const s = dw / dt
-      const sx = side === 'right' ? s : -s
-      // Ignore any tilt: axles in a side view sit at the same height.
-      toWorld = [sx, 0, 0, -s, REAR_WHEEL.x - sx * rear.x, REAR_WHEEL.y + s * rear.y]
-    } else {
-      warnings.push('No rear-axle / front-axle markers found, so panels were fitted to the default layout. Add the markers for an exact fit.')
-      side = 'right'
-      const all = bboxOf(raw.filter((r) => r.slot !== 'frontPlate').flatMap((r) => r.pts))
-      const ref = bboxOf(Object.values(DEFAULT_SLOTS).flatMap((s) => segPoints(s!)))
-      const s = (ref.x1 - ref.x0) / (all.x1 - all.x0)
-      toWorld = [s, 0, 0, -s, ref.x0 - s * all.x0, ref.y1 + s * all.y0]
-    }
-    const [a, , , d, e, f] = toWorld
-    const panels: TemplatePanel[] = raw.map((r) => ({
-      name: r.name,
-      slot: r.slot,
-      seg: r.pts.map(([x, y], i) => [i ? 'L' : 'M', a * x + e, d * y + f] as Seg),
-    }))
-    return {
-      template: { bikeId, fileName, svgText, toWorld, side, hasAxles: !!(rear && front), panels, updatedAt: new Date().toISOString() },
-      warnings,
-    }
+    const pieces = autoAssign(readPieces(svg))
+    if (!pieces.length) throw new Error('No closed shapes found in this SVG. Export the cut file with filled or closed outlines.')
+    const vb = svg.viewBox.baseVal
+    const all = boxOf(pieces.flatMap((p) => p.outline))
+    const viewBox: BikeTemplate['viewBox'] = vb && vb.width ? [vb.x, vb.y, vb.width, vb.height] : [all.x, all.y, all.w, all.h]
+    for (const role of ['shroud', 'sidePlate', 'frontPlate'] as Role[])
+      if (!pieces.some((p) => p.role === role)) warnings.push(`No ${ROLE_LABELS[role].toLowerCase()} was found automatically. Click the piece and set it.`)
+    return { template: { bikeId, fileName, svgText, viewBox, pieces, updatedAt: new Date().toISOString() }, warnings }
   } finally {
     done()
   }
+}
+
+// ---------- Template → bike world ----------
+
+// [a, b, c, d, e, f] maps (x, y) to (a*x + c*y + e, b*x + d*y + f).
+export type M6 = [number, number, number, number, number, number]
+
+const segPoints = (s: Seg[]) => s.map((p) => (p.length === 5 ? [p[3], p[4]] : [p[1], p[2]]) as Pt)
+
+// Where each role sits on the side-view bike, in world units.
+function targetBox(role: Role): Box {
+  const shape = role === 'sidePlate' ? sidePlate() : role === 'rearFender' ? rearFender() : role === 'frontFender' ? frontFender() : shroud()
+  const b = boxOf(segPoints(shape))
+  return { x: b.x, y: b.y, w: b.w, h: b.h }
+}
+
+// Fits a piece into its role's spot on the bike. Left-side pieces are
+// mirrored in the template, so they are flipped back here.
+export function pieceToWorld(p: TemplatePiece, pieces: TemplatePiece[]): M6 {
+  if (p.parent !== undefined) {
+    const host = pieces.find((q) => q.id === p.parent)
+    if (host) return pieceToWorld(host, pieces)
+  }
+  const t = targetBox(p.role === 'other' || p.role === 'ignore' || p.role === 'frontPlate' ? 'shroud' : p.role)
+  const k = Math.min(t.w / p.bbox.w, t.h / p.bbox.h)
+  const sx = p.side === 'left' ? -k : k
+  const pcx = p.bbox.x + p.bbox.w / 2
+  const pcy = p.bbox.y + p.bbox.h / 2
+  const tcx = t.x + t.w / 2
+  const tcy = t.y + t.h / 2
+  return [sx, 0, 0, -k, tcx - sx * pcx, tcy + k * pcy]
+}
+
+export const apply = (m: M6, [x, y]: Pt): Pt => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
+
+export function invert(m: M6): M6 {
+  const [a, b, c, d, e, f] = m
+  const det = a * d - b * c
+  return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det]
 }
 
 // ---------- Registry ----------
@@ -207,22 +329,36 @@ export const useTemplates = create<TemplateStore>((set) => ({
       delete next[id]
       return { templates: next }
     }),
-  setAll: (ts) => set({ templates: Object.fromEntries(ts.map((t) => [t.bikeId, t])) }),
+  setAll: (ts) => set((s) => ({ templates: { ...s.templates, ...Object.fromEntries(ts.map((t) => [t.bikeId, t])) } })),
 }))
 
-let loaded = false
-// Loads published templates once. Fails quietly (e.g. static preview).
-export async function loadTemplates() {
-  if (loaded) return
-  loaded = true
-  try {
-    const res = await fetch('/api/templates')
-    if (!res.ok || !res.headers.get('content-type')?.includes('json')) return
-    const data = await res.json()
-    if (Array.isArray(data.templates)) useTemplates.getState().setAll(data.templates)
-  } catch {
-    /* no API available: built-in shapes are used */
-  }
+const isTemplate = (t: unknown): t is BikeTemplate => !!t && typeof t === 'object' && Array.isArray((t as BikeTemplate).pieces) && Array.isArray((t as BikeTemplate).viewBox)
+
+let loaded: Promise<void> | null = null
+// Loads the outlines that ship with the site, then any published from /admin
+// (those win). Both fail quietly so the built-in shapes still work.
+export function loadTemplates() {
+  loaded ??= (async () => {
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}templates/index.json`)
+      if (res.ok) {
+        const list: string[] = await res.json()
+        const ts = await Promise.all(list.map((f) => fetch(`${import.meta.env.BASE_URL}templates/${f}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)))
+        useTemplates.getState().setAll(ts.filter(isTemplate))
+      }
+    } catch {
+      /* no bundled outlines */
+    }
+    try {
+      const res = await fetch('/api/templates')
+      if (!res.ok || !res.headers.get('content-type')?.includes('json')) return
+      const data = await res.json()
+      if (Array.isArray(data.templates)) useTemplates.getState().setAll(data.templates.filter(isTemplate))
+    } catch {
+      /* no API available (static preview) */
+    }
+  })()
+  return loaded
 }
 
 export interface PanelSet {
@@ -230,22 +366,31 @@ export interface PanelSet {
   sidePlate: Seg[][]
   rearFender: Seg[][]
   frontFender: Seg[][]
-  other: Seg[][]
 }
 
-// The outlines to use for a bike: template panels when uploaded, else the
-// built-in shapes (with the per-make tweaks).
+// The outlines used on the bike: the template's real pieces (placed on the
+// bike) when there is one, else the built-in shapes.
 export function panelSet(t: BikeTemplate | undefined, lift: number, rise: number): PanelSet {
-  const def: PanelSet = { shroud: [shroud(lift)], sidePlate: [sidePlate(rise)], rearFender: [rearFender(rise)], frontFender: [frontFender()], other: [] }
+  const def: PanelSet = { shroud: [shroud(lift)], sidePlate: [sidePlate(rise)], rearFender: [rearFender(rise)], frontFender: [frontFender()] }
   if (!t) return def
-  const pick = (slot: Slot) => t.panels.filter((p) => p.slot === slot).map((p) => p.seg)
+  const pick = (role: Role) => {
+    const sided = t.pieces.filter((p) => p.role === role && p.parent === undefined && p.side !== 'center')
+    // Both sides are mirror images; use one side so panels aren't doubled.
+    const one = sided.some((p) => p.side === 'right') ? sided.filter((p) => p.side === 'right') : sided
+    return one.map((p) => {
+      const m = pieceToWorld(p, t.pieces)
+      return p.outline.map((pt, i) => {
+        const [x, y] = apply(m, pt)
+        return [i ? 'L' : 'M', x, y] as Seg
+      })
+    })
+  }
   const or = (a: Seg[][], b: Seg[][]) => (a.length ? a : b)
   return {
     shroud: or(pick('shroud'), def.shroud),
     sidePlate: or(pick('sidePlate'), def.sidePlate),
     rearFender: or(pick('rearFender'), def.rearFender),
     frontFender: or(pick('frontFender'), def.frontFender),
-    other: pick('other'),
   }
 }
 
@@ -253,3 +398,6 @@ export function panelsFor(cfg: { bikeId: string }) {
   const m = makeInfo(bikeById(cfg.bikeId).make)
   return panelSet(useTemplates.getState().templates[cfg.bikeId], m.shroudLift, m.tailRise)
 }
+
+// Public copy of a template: outlines only, never the original SVG.
+export const publicCopy = ({ svgText: _svg, ...t }: BikeTemplate) => (void _svg, t)

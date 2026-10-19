@@ -6,7 +6,7 @@ import Icon, { type IconName } from '../components/Icon'
 import { designPreview, LazyStage, ProofCanvas, Reveal } from '../components/bits'
 import { MAKES } from '../data/bikes'
 import { DESIGNS } from '../data/designs'
-import { FINISHES, formatAED, KITS, type FinishId } from '../data/pricing'
+import { FINISHES, formatAED, KIT_PRICES, type FinishId } from '../data/pricing'
 import { FAQ } from '../data/site'
 
 const HERO_ROTATION = ['shamal', 'saguaro', 'falcon', 'dune', 'hex'] as const
@@ -196,8 +196,8 @@ export default function Home() {
               </Reveal>
               <Reveal delay={0.1}>
                 <p>
-                  Every design is fully editable: colours, name, number, logos and finish. Prices start at {formatAED(KITS.plates.price)} for number
-                  plates and {formatAED(KITS.full.price)} for a full kit.
+                  Every design is fully editable: colours, name, number, logos and finish. A fully custom kit is {formatAED(KIT_PRICES.MX.price)} for a
+                  motocross bike and {formatAED(KIT_PRICES.Trail.price)} for a trail bike.
                 </p>
               </Reveal>
             </div>

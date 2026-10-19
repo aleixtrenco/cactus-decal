@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Header } from '../components/Chrome'
 import Icon from '../components/Icon'
+import PieceMapper from '../components/PieceMapper'
 import { designPreview, LazyStage, ProofCanvas } from '../components/bits'
 import { BIKES, MAKES, bikeById, type Make } from '../data/bikes'
 import { DESIGNS, designById, type DesignId, type LogoSlot } from '../data/designs'
@@ -246,7 +247,7 @@ function Templates({ pw, mode }: { pw: string; mode: Mode }) {
 
   const cfg = useMemo(() => ({ ...designPreview(designId), bikeId: selected }), [designId, selected])
   const draft = drafts[selected]
-  const status = (id: string) => (drafts[id] ? 'Draft' : published[id] ? 'Published' : 'Built-in shape')
+  const status = (id: string) => (drafts[id] ? 'Draft' : published[id]?.svgUrl ? 'Published' : published[id] ? 'Outline only' : 'Built-in shape')
 
   return (
     <div className="admin-grid">
@@ -304,10 +305,16 @@ function Templates({ pw, mode }: { pw: string; mode: Mode }) {
           </figure>
         </div>
         {draft && (
+          <PieceMapper
+            template={draft.template}
+            onChange={(t) => {
+              useTemplates.getState().put(t)
+              setDrafts((d) => ({ ...d, [selected]: { ...d[selected], template: t } }))
+            }}
+          />
+        )}
+        {draft && draft.warnings.length > 0 && (
           <div className="note">
-            <b style={{ color: 'var(--text)' }}>
-              Found {draft.template.panels.length} panels: {Array.from(new Set(draft.template.panels.map((p) => p.name))).join(', ')}
-            </b>
             {draft.warnings.map((w) => (
               <p key={w} style={{ marginTop: 6 }}>
                 {w}
@@ -360,20 +367,11 @@ function TemplateGuide() {
         <Icon name="chevron" size={18} />
       </summary>
       <ol>
-        <li>Use your production template for the model: the right-hand side view, with panels placed as they sit on the bike.</li>
-        <li>
-          In the Layers panel, name each panel shape: <code>shroud</code>, <code>side-plate</code>, <code>rear-fender</code>, <code>front-fender</code>. Any
-          other named shape (e.g. <code>airbox</code>, <code>fork-guard</code>) is included in print files. Name the front number plate{' '}
-          <code>front-plate</code>.
-        </li>
-        <li>
-          Add two small circles named <code>rear-axle</code> and <code>front-axle</code> at the wheel centres. They set the exact scale for the 3D
-          preview.
-        </li>
-        <li>
-          Shapes named <code>guide</code>, <code>bleed</code> or <code>background</code> are ignored.
-        </li>
-        <li>File › Save As › SVG (not Export for Screens), Styling: Presentation Attributes, Object IDs: Layer Names, units in mm.</li>
+        <li>Upload your normal cut file for the model, exactly as you print it: the bike’s right side on the left half, the left side mirrored on the right half, front plate and front fender in the middle.</li>
+        <li>No layer names are needed. Each filled shape becomes a piece, and the shroud, side plate, rear fender, front fender and front plate are found automatically.</li>
+        <li>Check the coloured piece map. If a piece is wrong, click it and pick what it is and which side it belongs to. Small trim pieces can stay as “Other piece”: they’re printed with the pattern but have no lettering.</li>
+        <li>Check the 3D bike and the proofs, download a test print file, then publish.</li>
+        <li>In Illustrator use File › Save As › SVG. Pink cut-line copies on top of the filled pieces are fine.</li>
       </ol>
     </details>
   )

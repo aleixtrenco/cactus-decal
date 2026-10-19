@@ -91,14 +91,7 @@ export function drawProof(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side,
   ctx.closePath()
   ctx.fill()
 
-  const full = cfg.kit === 'full'
-  const panels: [Seg[], boolean][] = [
-    ...panelsSet.other.map((s) => [s, full] as [Seg[], boolean]),
-    ...panelsSet.rearFender.map((s) => [s, full] as [Seg[], boolean]),
-    ...panelsSet.frontFender.map((s) => [s, full] as [Seg[], boolean]),
-    ...panelsSet.shroud.map((s) => [s, cfg.kit !== 'plates'] as [Seg[], boolean]),
-    ...panelsSet.sidePlate.map((s) => [s, true] as [Seg[], boolean]),
-  ]
+  const panels: [Seg[], boolean][] = [...panelsSet.rearFender, ...panelsSet.frontFender, ...panelsSet.shroud, ...panelsSet.sidePlate].map((s) => [s, true])
   for (const [segs, printed] of panels) {
     ctx.save()
     world()

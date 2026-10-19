@@ -52,7 +52,7 @@ export const usesNeon = (c: KitConfig) =>
   [...Object.values(c.colors), c.rider.numberColor, c.rider.plateColor, c.rider.nameColor].some((h) => NEON_HEXES.has(h))
 
 export const priceInput = (c: KitConfig): PriceInput => ({
-  kit: c.kit,
+  bikeType: bikeById(c.bikeId).type,
   finish: c.finish,
   material: c.material,
   extras: c.extras,

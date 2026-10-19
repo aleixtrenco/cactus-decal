@@ -357,7 +357,8 @@ function place(p: Placement, panels: PanelSet) {
   return { x: b.x0 + p.rx * w, y: b.y0 + p.ry * h, w: p.rw * w, h: p.rh * h }
 }
 
-export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side, panels: PanelSet = panelsFor(cfg)) {
+// `lettering: false` paints the pattern only (for trim pieces in print files).
+export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side, panels: PanelSet = panelsFor(cfg), { lettering = true } = {}) {
   const W = canvas.width
   const H = canvas.height
   const ctx = canvas.getContext('2d')!
@@ -366,6 +367,11 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
   ctx.save()
   worldTransform(ctx, side, W, H)
   PATTERNS[cfg.designId](ctx, cfg.colors)
+  if (!lettering) {
+    ctx.restore()
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    return
+  }
 
   // Solid number background on the side plate.
   ctx.fillStyle = cfg.rider.plateColor

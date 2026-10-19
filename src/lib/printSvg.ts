@@ -11,18 +11,17 @@ import opentype from 'opentype.js'
 import ecUrl from '@fontsource/saira-extra-condensed/files/saira-extra-condensed-latin-800-normal.woff?url'
 import s7Url from '@fontsource/saira/files/saira-latin-700-normal.woff?url'
 import s8Url from '@fontsource/saira/files/saira-latin-800-normal.woff?url'
-import { bikeById } from '../data/bikes'
+import { bikeById, typeLabel } from '../data/bikes'
 import { designById } from '../data/designs'
-import { FINISHES, KITS, MATERIALS } from '../data/pricing'
+import { FINISHES, MATERIALS } from '../data/pricing'
 import type { KitConfig } from '../store/config'
 import { paintFrontPlate, paintSheet, WORLD, type Side } from './graphics'
 import type { Seg } from './shapes'
-import { mount, nameOf, panelsFor, slotFor, toRoot, type BikeTemplate, type Slot } from './templates'
+import { invert, mount, pieceElements, pieceToWorld, panelsFor, toRoot, type BikeTemplate, type M6, type Role, type TemplatePiece } from './templates'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const n = (v: number) => (Math.abs(v) < 1e-9 ? '0' : +v.toFixed(3) + '')
 
-type M6 = [number, number, number, number, number, number]
 
 interface Fonts {
   ec800: opentype.Font
@@ -185,12 +184,6 @@ function record(f: Fonts | null, width: number, height: number, paint: (c: HTMLC
   return rec.out.join('\n')
 }
 
-interface PanelOut {
-  name: string
-  slot: Slot
-  markup: string // element in template root coordinates
-}
-
 const SHEET_W = 2048
 
 // Sheet pixel → world, for each side (inverse of the painter transform).
@@ -199,139 +192,130 @@ function sheetToWorld(side: Side): M6 {
   return side === 'right' ? [k, 0, 0, -k, WORLD.x0, WORLD.y1] : [-k, 0, 0, -k, WORLD.x1, WORLD.y1]
 }
 
-function segToD(seg: Seg[], m: M6) {
-  const t = (x: number, y: number) => `${n(m[0] * x + m[2] * y + m[4])} ${n(m[1] * x + m[3] * y + m[5])}`
-  return seg.map((p) => (p.length === 5 ? `Q${t(p[1], p[2])} ${t(p[3], p[4])}` : `${p[0]}${t(p[1], p[2])}`)).join('') + 'Z'
-}
-
 export interface PrintFile {
   svg: string
   fileName: string
-  usedTemplate: boolean
+  // False when built from the public outlines (no original SVG available).
+  exact: boolean
 }
 
-export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate & { svgText?: string }): Promise<PrintFile> {
+const polyD = (pts: [number, number][]) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${n(x)} ${n(y)}`).join('') + 'Z'
+
+// Builds the print file on the template's own artboard: every piece keeps
+// its exact position and cut line, and is filled with its part of the design.
+export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Promise<PrintFile> {
   const f = await loadFonts()
   const bike = bikeById(cfg.bikeId)
-  let panels: PanelOut[] = []
-  let worldToTpl: M6
-  let box = { x: 0, y: 0, w: 0, h: 0 }
-  let unitsPerMm = 1
-  let primary: Side = 'right'
+  const t = template ?? builtInTemplate(cfg)
+  const pieces = t.pieces.filter((p) => p.role !== 'ignore')
 
-  if (template?.svgText) {
-    const { svg, done } = mount(template.svgText)
+  // Exact piece shapes from the original file when we have it.
+  const shapes = new Map<number, string>()
+  if (t.svgText) {
+    const { svg, done } = mount(t.svgText)
     try {
-      const shapes = [...svg.querySelectorAll('path, polygon, rect, ellipse, circle, polyline')] as SVGGeometryElement[]
-      for (const el of shapes) {
-        const name = nameOf(el)
-        const slot = slotFor(name)
-        if (!slot) continue
+      pieceElements(svg).forEach((el, id) => {
         const clone = el.cloneNode(false) as Element
-        for (const a of ['style', 'class', 'fill', 'stroke', 'stroke-width', 'id', 'data-name', 'opacity', 'clip-path', 'mask', 'filter']) clone.removeAttribute(a)
+        for (const a of ['style', 'class', 'fill', 'stroke', 'stroke-width', 'id', 'data-name', 'opacity', 'clip-path', 'mask', 'filter', 'transform']) clone.removeAttribute(a)
         const m = toRoot(el, svg)
         clone.setAttribute('transform', `matrix(${[m.a, m.b, m.c, m.d, m.e, m.f].map(n).join(' ')})`)
-        panels.push({ name, slot, markup: new XMLSerializer().serializeToString(clone).replace(/ xmlns="[^"]*"/, '') })
-      }
-      const vb = svg.viewBox.baseVal
-      const bb = svg.getBBox()
-      box = vb && vb.width ? { x: vb.x, y: vb.y, w: vb.width, h: vb.height } : { x: bb.x, y: bb.y, w: bb.width, h: bb.height }
-      const wAttr = svg.getAttribute('width') ?? ''
-      const wNum = parseFloat(wAttr)
-      if (/mm$/.test(wAttr) && wNum) unitsPerMm = box.w / wNum
-      else if (/cm$/.test(wAttr) && wNum) unitsPerMm = box.w / (wNum * 10)
-      else if (/in$/.test(wAttr) && wNum) unitsPerMm = box.w / (wNum * 25.4)
-      else unitsPerMm = 72 / 25.4 // Illustrator exports points as user units
+        const rule = getComputedStyle(el).fillRule
+        if (rule === 'evenodd') clone.setAttribute('fill-rule', 'evenodd')
+        shapes.set(id, new XMLSerializer().serializeToString(clone).replace(/ xmlns="[^"]*"/, ''))
+      })
     } finally {
       done()
     }
-    const [a, , , d, e, f] = template.toWorld
-    worldToTpl = [1 / a, 0, 0, 1 / d, -e / a, -f / d]
-    primary = template.side
-  } else {
-    // No template: built-in outlines at roughly real size (1 world unit ≈ 1 m).
-    const k = 1000
-    worldToTpl = [k, 0, 0, -k, 0, 1.4 * k]
-    unitsPerMm = 1
-    const set = panelsFor(cfg)
-    const add = (slot: Slot, segs: Seg[][]) => segs.forEach((s, i) => panels.push({ name: `${slot}${i ? `-${i + 1}` : ''}`, slot, markup: `<path d="${segToD(s, worldToTpl)}"/>` }))
-    add('shroud', set.shroud)
-    add('sidePlate', set.sidePlate)
-    add('rearFender', set.rearFender)
-    add('frontFender', set.frontFender)
-    box = { x: -1300, y: 0, w: 2600, h: 1200 }
   }
+  const shapeOf = (p: TemplatePiece) => shapes.get(p.id) ?? `<path d="${polyD(p.outline)}"/>`
+  const paint = (markup: string, attrs: string) => markup.replace(/^<(\w+)/, `<$1 ${attrs}`)
 
-  const printed = (slot: Slot) =>
-    slot === 'sidePlate' || slot === 'frontPlate' || (slot === 'shroud' && cfg.kit !== 'plates') || cfg.kit === 'full'
-  panels = panels.filter((p) => printed(p.slot))
-  const sidePanels = panels.filter((p) => p.slot !== 'frontPlate')
-  const plate = panels.find((p) => p.slot === 'frontPlate')
+  const [vx, vy, vw, vh] = t.viewBox
+  const bleed = vw * 0.002
+  // Lettering (number, name, make, logos) only on the pieces it belongs to.
+  const panels = panelsFor(cfg)
+  const art = (side: Side, lettering: boolean) => record(f, SHEET_W, SHEET_W / 2, (c) => paintSheet(c, cfg, side, panels, { lettering }))
+  const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender']
+  const big = `x="${n(vx - vw)}" y="${n(vy - vh)}" width="${n(vw * 3)}" height="${n(vh * 3)}"`
 
-  const bleed = 3 * unitsPerMm
-  const gap = 20 * unitsPerMm
-  const cx = box.x + box.w / 2
-  const mirror: M6 = mul([1, 0, 0, 1, 0, box.h + gap], [-1, 0, 0, 1, 2 * cx, 0])
-  const other: Side = primary === 'right' ? 'left' : 'right'
-  const art = (side: Side) => record(f, SHEET_W, SHEET_W / 2, (c) => paintSheet(c, cfg, side))
-  const toTpl = (side: Side) => mul(worldToTpl, sheetToWorld(side))
-
-  const maskBody = (list: PanelOut[]) => list.map((p) => p.markup.replace(/^<(\w+)/, `<$1 fill="#fff" stroke="#fff" stroke-width="${n(bleed * 2)}" stroke-linejoin="round"`)).join('\n')
-  const cut = (list: PanelOut[]) => list.map((p) => p.markup.replace(/^<(\w+)/, `<$1 fill="none" stroke="#ec008c" stroke-width="${n(0.25 * unitsPerMm)}"`)).join('\n')
-  const big = `x="${n(box.x - box.w)}" y="${n(box.y - box.h)}" width="${n(box.w * 3)}" height="${n(box.h * 4)}"`
-
-  let plateArt = ''
-  if (plate) {
-    // Map the square plate artwork onto the plate outline's bounding box.
-    const { svg, done } = mount(`<svg xmlns="http://www.w3.org/2000/svg">${plate.markup}</svg>`)
-    const bb = (svg.firstElementChild as SVGGraphicsElement).getBBox()
-    const m = toRoot(svg.firstElementChild as SVGGraphicsElement, svg)
-    done()
-    const p0 = new DOMPoint(bb.x, bb.y).matrixTransform(m)
-    const p1 = new DOMPoint(bb.x + bb.width, bb.y + bb.height).matrixTransform(m)
-    const S = 512
-    const w = Math.abs(p1.x - p0.x)
-    const k = w / S
-    const mx = (p0.x + p1.x) / 2 - (S / 2) * k
-    const my = (p0.y + p1.y) / 2 - (S / 2) * k
-    plateArt = `<mask id="mask-plate" maskUnits="userSpaceOnUse" ${big}>${maskBody([plate])}</mask>
-<g mask="url(#mask-plate)"><g transform="${mstr([k, 0, 0, k, mx, my])}">${record(f, S, S, (c) => paintFrontPlate(c, cfg))}</g></g>`
-  }
-
-  const totalH = box.h * 2 + gap + 60 * unitsPerMm
-  const info = [
-    `CACTUS DECAL LAB · ${bike.make} ${bike.model} (${bike.years})`,
-    `Design ${designById(cfg.designId).name} · ${KITS[cfg.kit].label} · ${FINISHES[cfg.finish].label} · ${MATERIALS[cfg.material].label}`,
-    `Rider ${cfg.rider.name || '-'} #${cfg.rider.number || '-'} · Colours ${Object.values(cfg.colors).join(' ')}`,
-    template ? `Template ${template.fileName}` : 'Built-in outline: NOT a production template. Upload the model template before printing.',
+  const defs: string[] = [
+    `<g id="art-right">${art('right', true)}</g>`,
+    `<g id="art-left">${art('left', true)}</g>`,
+    `<g id="art-right-plain">${art('right', false)}</g>`,
+    `<g id="art-left-plain">${art('left', false)}</g>`,
   ]
+  const printed: string[] = []
+  for (const p of pieces) {
+    const mask = `<mask id="m${p.id}" maskUnits="userSpaceOnUse" ${big}>${paint(shapeOf(p), `fill="#fff" stroke="#fff" stroke-width="${n(bleed * 2)}" stroke-linejoin="round"`)}</mask>`
+    defs.push(mask)
+    if (p.role === 'frontPlate') {
+      const S = 512
+      const k = Math.min(p.bbox.w, p.bbox.h * 1.1) / (S * 0.82)
+      const mx = p.bbox.x + p.bbox.w / 2 - (S / 2) * k
+      const my = p.bbox.y + p.bbox.h / 2 - (S / 2) * k
+      printed.push(`<g id="piece-${p.id}-front-plate" mask="url(#m${p.id})"><g transform="${mstr([k, 0, 0, k, mx, my])}">${record(f, S, S, (c) => paintFrontPlate(c, cfg))}</g></g>`)
+      continue
+    }
+    const side: Side = p.side === 'left' ? 'left' : 'right'
+    const m = mul(invert(pieceToWorld(p, t.pieces)), sheetToWorld(side))
+    const host = p.parent !== undefined ? (t.pieces.find((q) => q.id === p.parent) ?? p) : p
+    const ref = `#art-${side}${LETTERED.includes(host.role) ? '' : '-plain'}`
+    printed.push(`<g id="piece-${p.id}-${p.role}" mask="url(#m${p.id})"><use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/></g>`)
+  }
+  const cut = pieces.map((p) => paint(shapeOf(p), `fill="none" stroke="#ec008c" stroke-width="${n(vw * 0.0004)}"`)).join('\n')
 
+  const info = [
+    `CACTUS DECAL LAB · ${bike.make} ${bike.model} (${bike.years}) · ${typeLabel(bike.type)} kit`,
+    `Design ${designById(cfg.designId).name} · ${FINISHES[cfg.finish].label} · ${MATERIALS[cfg.material].label}`,
+    `Rider ${cfg.rider.name || '-'} #${cfg.rider.number || '-'} · Colours ${Object.values(cfg.colors).join(' ')}`,
+    template ? `Template ${t.fileName}${t.svgText ? '' : ' (outline copy: upload the original SVG in /admin for exact cut lines)'}` : 'No template for this model: built-in outlines, NOT for production.',
+  ]
+  const fs = vw * 0.011
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="${n(box.x)} ${n(box.y)} ${n(box.w)} ${n(totalH)}" width="${n(box.w / unitsPerMm)}mm" height="${n(totalH / unitsPerMm)}mm">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="${n(vx)} ${n(vy)} ${n(vw)} ${n(vh + fs * 6)}">
 <defs>
-<mask id="mask-${primary}" maskUnits="userSpaceOnUse" ${big}>${maskBody(sidePanels)}</mask>
-<mask id="mask-${other}" maskUnits="userSpaceOnUse" ${big}><g transform="${mstr(mirror)}">${maskBody(sidePanels)}</g></mask>
+${defs.join('\n')}
 </defs>
 <g id="PRINT">
-<g id="PRINT_${primary.toUpperCase()}_SIDE" mask="url(#mask-${primary})"><g transform="${mstr(toTpl(primary))}">
-${art(primary)}
-</g></g>
-<g id="PRINT_${other.toUpperCase()}_SIDE" mask="url(#mask-${other})"><g transform="${mstr(mul(mirror, toTpl(other)))}">
-${art(other)}
-</g></g>
-${plateArt ? `<g id="PRINT_FRONT_PLATE">${plateArt}</g>` : ''}
+${printed.join('\n')}
 </g>
 <g id="CUT">
-<g id="CUT_${primary.toUpperCase()}_SIDE">${cut(panels)}</g>
-<g id="CUT_${other.toUpperCase()}_SIDE" transform="${mstr(mirror)}">${cut(sidePanels)}</g>
+${cut}
 </g>
-<g id="INFO" font-family="'Saira'" font-size="${n(5 * unitsPerMm)}" fill="#111">
-${info.map((t, i) => `<text x="${n(box.x + 10 * unitsPerMm)}" y="${n(box.y + box.h * 2 + gap + (12 + i * 8) * unitsPerMm)}">${esc(t)}</text>`).join('\n')}
+<g id="INFO" font-family="'Saira', Arial, sans-serif" font-size="${n(fs)}" fill="#111">
+${info.map((s, i) => `<text x="${n(vx)}" y="${n(vy + vh + fs * (1.6 + i * 1.3))}">${esc(s)}</text>`).join('\n')}
 </g>
 </svg>`
 
   const slug = `${bike.make}-${cfg.rider.number || 'kit'}-${cfg.designId}`.toLowerCase().replace(/[^a-z0-9-]+/g, '-')
-  return { svg, fileName: `cdl-print-${slug}.svg`, usedTemplate: !!template?.svgText }
+  return { svg, fileName: `cdl-print-${slug}.svg`, exact: !!t.svgText }
+}
+
+// Fallback when a model has no template: the built-in outlines laid out
+// like a cut file (right side on the left, left side mirrored on the right).
+function builtInTemplate(cfg: KitConfig): BikeTemplate {
+  const set = panelsFor(cfg)
+  const pieces: TemplatePiece[] = []
+  const roles: [Role, Seg[][]][] = [
+    ['shroud', set.shroud],
+    ['sidePlate', set.sidePlate],
+    ['rearFender', set.rearFender],
+    ['frontFender', set.frontFender],
+  ]
+  const k = 1000
+  for (const side of ['right', 'left'] as const)
+    for (const [role, segs] of roles)
+      for (const seg of segs) {
+        // World → layout: right side on the left half, mirrored on the right.
+        const pts = seg.map((s) => (s.length === 5 ? [s[3], s[4]] : [s[1], s[2]]) as [number, number])
+        const outline = pts.map(([x, y]) => [side === 'right' ? (x - 1.3) * k : (1.3 - x) * k + 2700, (1.5 - y) * k] as [number, number])
+        const xs = outline.map((q) => q[0])
+        const ys = outline.map((q) => q[1])
+        const bbox = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }
+        pieces.push({ id: pieces.length, role, side, outline, bbox, area: bbox.w * bbox.h })
+      }
+  // Built-in pieces already sit at their world spot: use an exact transform.
+  return { bikeId: cfg.bikeId, fileName: 'built-in', viewBox: [-2600, 0, 5300, 1300], pieces, updatedAt: '' }
 }
 
 export function downloadText(text: string, fileName: string, type = 'image/svg+xml') {

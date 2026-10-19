@@ -13,7 +13,7 @@ Built with React, Vite, three.js (react-three-fiber) and Framer Motion. Server f
 
 | What | Where |
 |---|---|
-| Prices (placeholders) | `src/data/pricing.ts` |
+| Kit prices (AED 900 motocross, AED 1,300 trail) and the placeholder finish/extra prices | `src/data/pricing.ts` |
 | Contact details, FAQ answers | `src/data/site.ts` |
 | Bike models and fitment years | `src/data/bikes.ts` |
 | Designs and colour swatches | `src/data/designs.ts` |
@@ -21,27 +21,24 @@ Built with React, Vite, three.js (react-three-fiber) and Framer Motion. Server f
 
 ## Bike templates (SVG)
 
-Upload one SVG per model in `/admin` → Bike templates. The template's panel shapes replace the built-in ones in the 3D preview, the customer proof and the print file.
+Upload each model's normal cut file in `/admin` → Bike templates. The layout is the usual one: the bike's right side on the left half, the left side mirrored on the right half, front plate and front fender in the middle.
 
-1. Side view of the bike (right-hand side), panels placed as they sit on the bike. Units in mm.
-2. Name each panel shape in the Layers panel: `shroud`, `side-plate`, `rear-fender`, `front-fender`. Other named shapes (`airbox`, `fork-guard`, ...) are printed too but not shown in 3D. Name the front number plate `front-plate` (it can sit anywhere on the artboard).
-3. Add two small circles named `rear-axle` and `front-axle` at the wheel centres. They set the exact scale.
-4. Shapes named `guide`, `bleed` or `background` are ignored.
-5. Illustrator: File › Save As › SVG. Styling: Presentation Attributes. Object IDs: Layer Names.
+- No layer names needed. Every filled shape becomes a piece. The shroud, side plate, rear fender, front fender and front plate are found automatically.
+- The piece map in `/admin` shows what was found. Click a piece to correct it.
+- The real outlines are placed on the 3D bike and the proofs. Each piece gets its part of the design, so the design flows from shroud to rear fender like a printed kit.
+- The original SVG is stored privately. Only an outline copy (for the 3D preview) is public.
 
-After uploading you see the template on the 3D bike and both proofs. You can download a test print file before you publish.
+Outline copies for four models are already included in `public/templates/` (Honda CRF250R/RX · CRF450R/RX 2025, Husqvarna TC/FC/FS 2016–2022, GasGas MC 85 2021–2024, Kawasaki KX250 2025 / KX450 2024–2025). Upload the original SVGs for these in `/admin` too, so print files use the exact cut lines.
 
 ## Print files
 
-`/admin` → Orders → **Print file** downloads an SVG that opens directly in Adobe Illustrator (save it as .ai from there):
+`/admin` → Orders → **Print file** downloads an SVG on your template's own artboard, which opens directly in Adobe Illustrator (save it as .ai from there):
 
-- `PRINT`: artwork for both sides (left side mirrored) and the front plate, masked to the exact template outlines with 3 mm bleed.
-- `CUT`: template outlines as magenta cut lines.
-- `INFO`: order details.
+- `PRINT`: each piece filled with its part of the design, masked to the exact piece outline with a small bleed. Number, name, make lettering and logos go only on shrouds, side plates and rear fenders. Trim pieces get the pattern only.
+- `CUT`: every piece outline as a magenta cut line.
+- `INFO`: order details under the artboard.
 
-All lettering is converted to vector outlines, and customer logos are embedded. The design artwork is fully vector.
-
-Only the team can download print files. Customers get a picture proof.
+All lettering is converted to vector outlines and customer logos are embedded. Only the team can download print files. Customers get a picture proof.
 
 ## Run locally
 
