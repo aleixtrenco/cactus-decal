@@ -1,8 +1,9 @@
 // Shared helpers for customer layers: the panels they can go on, ids and
 // image uploads.
 
-import type { LayerPanel } from '../store/config'
+import { pieceIdOf, type LayerPanel } from '../store/config'
 import { loadImage } from './graphics'
+import type { BikeTemplate, Role, TemplatePiece } from './templates'
 
 export const PANELS: [LayerPanel, string][] = [
   ['shroud', 'Shroud'],
@@ -11,7 +12,39 @@ export const PANELS: [LayerPanel, string][] = [
   ['frontFender', 'Front fender'],
   ['kit', 'Whole kit'],
 ]
-export const panelName = (p: LayerPanel) => PANELS.find(([id]) => id === p)?.[1] ?? 'Whole kit'
+const MAIN: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
+const SIDE = { right: 'right', left: 'left', center: 'centre' }
+
+// Every template piece that isn't one of the main panels is a panel of its
+// own (front plate, fork guards, fender centre, trim), so all of them can be
+// designed. Numbered left to right as they sit on the template.
+export function piecePanels(t: BikeTemplate | undefined, plates: boolean): { panel: LayerPanel; label: string; piece: TemplatePiece }[] {
+  if (!t) return []
+  const own = t.pieces
+    .filter((p) => p.parent === undefined && p.role !== 'ignore' && !MAIN.includes(p.role))
+    .filter((p) => !plates || p.role === 'frontPlate')
+    .sort((a, b) => a.bbox.x - b.bbox.x || a.bbox.y - b.bbox.y)
+  // Pieces laid on the front fender (its centre strip) are named for it.
+  const fender = t.pieces.find((p) => p.role === 'frontFender' && p.side === 'center')
+  const onFender = (p: TemplatePiece) => {
+    if (!fender || p.side !== 'center') return false
+    const cx = p.bbox.x + p.bbox.w / 2
+    const cy = p.bbox.y + p.bbox.h / 2
+    const b = fender.bbox
+    return cx > b.x && cx < b.x + b.w && cy > b.y && cy < b.y + b.h
+  }
+  let n = 0
+  return own.map((p) => ({
+    panel: `p${p.id}` as LayerPanel,
+    piece: p,
+    label: p.role === 'frontPlate' ? 'Front plate' : onFender(p) ? 'Fender centre' : `Trim ${++n} · ${SIDE[p.side]}`,
+  }))
+}
+
+export function panelName(p: LayerPanel, t?: BikeTemplate) {
+  if (pieceIdOf(p) !== null) return piecePanels(t, false).find((x) => x.panel === p)?.label ?? 'Piece'
+  return PANELS.find(([id]) => id === p)?.[1] ?? 'Whole kit'
+}
 // Panels a customer can design on: plates-only orders just have the side plates.
 export const panelsAllowed = (plates: boolean) => PANELS.filter(([p]) => !plates || p === 'sidePlate' || p === 'kit')
 

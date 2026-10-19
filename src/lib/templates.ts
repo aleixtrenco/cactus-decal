@@ -10,8 +10,9 @@
 // graphics.ts). That is how one design flows across all pieces, how the
 // real outlines appear on the 3D bike, and how the print file is built.
 
+import { useMemo } from 'react'
 import { create } from 'zustand'
-import { bikeById, makeInfo } from '../data/bikes'
+import { BIKES, bikeById, makeInfo } from '../data/bikes'
 import { frontFender, rearFender, shroud, sidePlate, type Seg } from './shapes'
 
 export type Role = 'shroud' | 'sidePlate' | 'rearFender' | 'frontFender' | 'frontPlate' | 'other' | 'ignore'
@@ -481,6 +482,14 @@ export function sideOutlines(t: BikeTemplate, side: 'right' | 'left', roles?: Ro
       const m = pieceToWorld(p, t.pieces)
       return p.outline.map((pt) => apply(m, pt))
     })
+}
+
+// Bikes customers can design: only those with an uploaded print template,
+// so every kit is cut from the shop's real file. New templates uploaded in
+// /admin appear automatically.
+export function useAvailableBikes() {
+  const templates = useTemplates((s) => s.templates)
+  return useMemo(() => BIKES.filter((b) => templates[b.id]), [templates])
 }
 
 // The 3D model shown for a bike: its own, else one from another model of the

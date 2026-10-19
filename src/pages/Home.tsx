@@ -5,6 +5,7 @@ import { CactusSpines, Contours, Footer, Header } from '../components/Chrome'
 import Icon, { type IconName } from '../components/Icon'
 import { designPreview, LazyStage, ProofCanvas, Reveal } from '../components/bits'
 import { MAKES } from '../data/bikes'
+import { useAvailableBikes } from '../lib/templates'
 import { DESIGNS, PRESETS } from '../data/designs'
 import { FINISHES, formatAED, KIT_PARTS, KIT_PRICES, PLATES_KIT, PLATES_PARTS, type FinishId } from '../data/pricing'
 import { FAQ } from '../data/site'
@@ -13,6 +14,7 @@ const HERO_BIKE = 'husq-tcfc-16'
 const HERO_ROTATION = ['shamal', 'saguaro', 'falcon', 'dune', 'hex'] as const
 
 function Hero() {
+  const available = useAvailableBikes()
   const [i, setI] = useState(0)
   const reduce = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const finePointer = typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches
@@ -76,7 +78,7 @@ function Hero() {
               </a>
             </div>
             <p className="fits">
-              Fits <strong>{MAKES.map((m) => m.make).join(' · ')}</strong>
+              Fits <strong>{MAKES.filter((m) => available.some((b) => b.make === m.make)).map((m) => m.make).join(' · ')}</strong>
             </p>
           </motion.div>
         </div>

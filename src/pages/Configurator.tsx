@@ -4,12 +4,13 @@ import { useSearchParams } from 'react-router-dom'
 import { Contours, Header } from '../components/Chrome'
 import ColorField from '../components/ColorField'
 import GraphicsStep from '../components/GraphicsStep'
-import { newId, panelName, panelsAllowed, prepareImage } from '../lib/layers'
+import { newId, panelName, panelsAllowed, piecePanels, prepareImage } from '../lib/layers'
+import { useAvailableBikes, useTemplates } from '../lib/templates'
 import TemplateDesigner from '../components/TemplateDesigner'
 import Icon from '../components/Icon'
 import { paintCss } from '../lib/paint'
 import { AnimatedNumber, LazyStage, ProofCanvas } from '../components/bits'
-import { BIKES, MAKES, bikeById, typeLabel, type Make } from '../data/bikes'
+import { MAKES, bikeById, typeLabel, type Make } from '../data/bikes'
 import { DESIGNS, PRESETS, designById, swatchName, type Palette } from '../data/designs'
 import { FONTS as NUMBER_FONTS, type FontId as NumberFont } from '../data/fonts'
 import {
@@ -72,6 +73,12 @@ export default function Configurator() {
     // Only on first load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Only bikes with a print template can be designed: move off any other.
+  const available = useAvailableBikes()
+  useEffect(() => {
+    if (available.length && !available.some((b) => b.id === config.bikeId)) useConfig.getState().set({ bikeId: available[0].id })
+  }, [available, config.bikeId])
 
   // The template is the main design surface; the 3D bike takes over on the
   // bike step and whenever the customer swaps it in.
@@ -257,7 +264,9 @@ function BikeStep() {
   const { config, set } = useConfig()
   const current = bikeById(config.bikeId)
   const [make, setMake] = useState<Make>(current.make)
-  const models = BIKES.filter((b) => b.make === make)
+  const available = useAvailableBikes()
+  const makes = MAKES.filter((m) => available.some((b) => b.make === m.make))
+  const models = available.filter((b) => b.make === make)
   return (
     <>
       <StepHead title="Your bike" lead="Choose what you're designing, then your make and model so every piece is cut to fit." />
@@ -283,14 +292,14 @@ function BikeStep() {
       <div className="group">
         <div className="group-label">Make</div>
         <div className="chips">
-          {MAKES.map((m) => (
+          {makes.map((m) => (
             <button
               key={m.make}
               className="chip"
               aria-pressed={make === m.make}
               onClick={() => {
                 setMake(m.make)
-                const first = BIKES.find((b) => b.make === m.make)!
+                const first = available.find((b) => b.make === m.make)!
                 set({ bikeId: first.id })
               }}
             >
@@ -523,7 +532,9 @@ function LogoStep() {
   const [drag, setDrag] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const logos = config.layers.filter((l) => l.logo)
-  const allowed = panelsAllowed(platesOnly(config))
+  const template = useTemplates((s) => s.templates[config.bikeId])
+  const plates = platesOnly(config)
+  const allowed: [LayerPanel, string][] = [...panelsAllowed(plates), ...piecePanels(template, plates).map((x): [LayerPanel, string] => [x.panel, x.label])]
   const target: LayerPanel = allowed.some(([p]) => p === chosen) && chosen !== 'kit' ? chosen : allowed[0][0]
 
   const accept = async (files: FileList | null) => {
@@ -564,7 +575,7 @@ function LogoStep() {
         >
           <Icon name="upload" size={28} />
           <b>Upload a logo</b>
-          <small>PNG with a transparent background or SVG works best. It goes on the {panelName(target).toLowerCase()} first.</small>
+          <small>PNG with a transparent background or SVG works best. It goes on the {panelName(target, template).toLowerCase()} first.</small>
           <input
             ref={input}
             type="file"

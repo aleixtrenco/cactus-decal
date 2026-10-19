@@ -15,9 +15,9 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
-import { ensureAssets, paintDecalSheet, paintFrontPlate, paintSheet, sheetWidth, WORLD } from '../lib/graphics'
+import { drawPieceLayer, ensureAssets, paintDecalSheet, paintFrontPlate, paintSheet, sheetWidth, WORLD, type Side } from '../lib/graphics'
 import { FRONT_WHEEL } from '../lib/shapes'
-import { invert, modelUrl, mul6, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role } from '../lib/templates'
+import { invert, modelUrl, mul6, onModel, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role, type TemplatePiece } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
 import { plasticsHex, platesOnly, type KitConfig } from '../store/config'
 
@@ -256,8 +256,58 @@ function findFender(root: THREE.Object3D) {
   return x1 - x0 > 0.15 ? { x0, x1, w: w * 1.05 } : null
 }
 
-// The template's front fender piece, as it is printed, laid flat into the
-// fender sheet: the top of the piece towards the back of the bike.
+// Layers designed on one template piece, drawn into a sheet through `base`
+// (template units → sheet pixels) and kept inside the piece.
+function paintPieceLayers(c: HTMLCanvasElement, cfg: KitConfig, t: BikeTemplate, piece: TemplatePiece, base: M6) {
+  const host = piece.parent !== undefined ? (t.pieces.find((q) => q.id === piece.parent) ?? piece) : piece
+  const ls = cfg.layers.filter((l) => l.panel === `p${host.id}` && !l.cover)
+  if (!ls.length) return
+  const ctx = c.getContext('2d')!
+  ctx.save()
+  ctx.setTransform(...base)
+  ctx.beginPath()
+  piece.outline.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)))
+  ctx.closePath()
+  ctx.clip()
+  for (const l of ls) drawPieceLayer(ctx, l, host.bbox, base)
+  ctx.restore()
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+}
+
+// Sheet pixels from world units (inverse of the sheet → world mapping).
+const worldToSheet = (side: Side, w: number) => {
+  const k = (WORLD.x1 - WORLD.x0) / w
+  return invert(side === 'right' ? [k, 0, 0, -k, WORLD.x0, WORLD.y1] : [-k, 0, 0, -k, WORLD.x1, WORLD.y1])
+}
+
+// Pieces designed on their own that sit on the side of the model.
+function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, roles?: Role[]) {
+  for (const side of ['right', 'left'] as const) {
+    const c = P.sheets[side]
+    for (const p of t.pieces) {
+      if (p.side !== side || !onModel(p, t.pieces) || (roles && !roles.includes(p.role))) continue
+      paintPieceLayers(c, cfg, t, p, mul6(worldToSheet(side, c.width), pieceToWorld(p, t.pieces)))
+    }
+  }
+}
+
+// Front plate piece layers on top of the plate artwork (same placement as the
+// print file: the plate art is centred on the piece).
+function paintPlatePieces(P: Projector, cfg: KitConfig, t: BikeTemplate) {
+  const p = t.pieces.find((x) => x.role === 'frontPlate')
+  if (!p) return
+  const S = 512
+  const k = Math.min(p.bbox.w, p.bbox.h * 1.1) / (S * 0.82)
+  const mx = p.bbox.x + p.bbox.w / 2 - (S / 2) * k
+  const my = p.bbox.y + p.bbox.h / 2 - (S / 2) * k
+  const c = P.sheets.plate
+  const q = c.width / S / k
+  paintPieceLayers(c, cfg, t, p, [q, 0, 0, q, -mx * q, -my * q])
+}
+
+// The template's front fender piece and the pieces laid on it (e.g. a centre
+// strip), as printed, flat in the fender sheet: the top of the piece towards
+// the back of the bike.
 function paintFender(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: ReturnType<typeof panelSet>) {
   const c = P.sheets.fender
   const ctx = c.getContext('2d')!
@@ -269,17 +319,25 @@ function paintFender(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: Retu
   const { x, y, w, h } = piece.bbox
   // Template → fender sheet (long side of the piece along the sheet's height).
   const S: M6 = h >= w ? [c.width / w, 0, 0, c.height / h, (-x * c.width) / w, (-y * c.height) / h] : [0, c.height / w, c.width / h, 0, (-y * c.width) / h, (-x * c.height) / w]
-  ctx.save()
-  ctx.setTransform(...S)
-  ctx.beginPath()
-  piece.outline.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)))
-  ctx.closePath()
-  ctx.clip()
   const k = (WORLD.x1 - WORLD.x0) / P.sheets.art.width
-  const m = mul6(mul6(S, invert(pieceToWorld(piece, t.pieces))), [k, 0, 0, -k, WORLD.x0, WORLD.y1])
-  ctx.setTransform(...m)
-  ctx.drawImage(P.sheets.art, 0, 0)
-  ctx.restore()
+  const within = (p: TemplatePiece) => {
+    const cx = p.bbox.x + p.bbox.w / 2
+    const cy = p.bbox.y + p.bbox.h / 2
+    return p.side === piece.side && p.role !== 'frontPlate' && p.role !== 'ignore' && cx > x && cx < x + w && cy > y && cy < y + h
+  }
+  const parts = [piece, ...t.pieces.filter((p) => p !== piece && within(p))]
+  for (const p of parts) {
+    ctx.save()
+    ctx.setTransform(...S)
+    ctx.beginPath()
+    p.outline.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)))
+    ctx.closePath()
+    ctx.clip()
+    ctx.setTransform(...mul6(mul6(S, invert(pieceToWorld(p, t.pieces))), [k, 0, 0, -k, WORLD.x0, WORLD.y1]))
+    ctx.drawImage(P.sheets.art, 0, 0)
+    ctx.restore()
+    paintPieceLayers(c, cfg, t, p, S)
+  }
 }
 
 function useModel(url: string) {
@@ -356,7 +414,9 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
       const roles = platesOnly(cfg) ? (['sidePlate'] as Role[]) : undefined
       paintDecalSheet(P.sheets.right, cfg, 'right', sideOutlines(template, 'right', roles), panels)
       paintDecalSheet(P.sheets.left, cfg, 'left', sideOutlines(template, 'left', roles), panels)
+      paintSidePieces(P, cfg, template, roles)
       paintFrontPlate(P.sheets.plate, cfg)
+      paintPlatePieces(P, cfg, template)
       paintFender(P, cfg, template, panels)
       for (const t of P.textures) t.needsUpdate = true
     }

@@ -15,7 +15,7 @@ import { bikeById, typeLabel } from '../data/bikes'
 import { designById } from '../data/designs'
 import { FINISHES, MATERIALS } from '../data/pricing'
 import { platesOnly, type KitConfig } from '../store/config'
-import { paintFrontPlate, paintSheet, WORLD, type Side } from './graphics'
+import { drawPieceLayer, paintFrontPlate, paintSheet, WORLD, type Side } from './graphics'
 import { builtInTemplate, invert, mount, pieceElements, pieceToWorld, panelsFor, toRoot, type BikeTemplate, type M6, type Role, type TemplatePiece } from './templates'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -302,6 +302,12 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
     `<g id="art-left-plain">${art('left', false)}</g>`,
   ]
   const printed: string[] = []
+  // Anything the customer designed on a piece itself, in template units.
+  const own = (p: TemplatePiece) => {
+    const host = p.parent !== undefined ? (t.pieces.find((q) => q.id === p.parent) ?? p) : p
+    const ls = cfg.layers.filter((l) => l.panel === `p${host.id}` && !l.cover)
+    return ls.length ? record(f, vw, vh, (c) => ls.forEach((l) => drawPieceLayer(c.getContext('2d')!, l, host.bbox, [1, 0, 0, 1, 0, 0]))) : ''
+  }
   for (const p of pieces) {
     const mask = `<mask id="m${p.id}" maskUnits="userSpaceOnUse" ${big}>${paint(shapeOf(p), `fill="#fff" stroke="#fff" stroke-width="${n(bleed * 2)}" stroke-linejoin="round"`)}</mask>`
     defs.push(mask)
@@ -310,14 +316,14 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
       const k = Math.min(p.bbox.w, p.bbox.h * 1.1) / (S * 0.82)
       const mx = p.bbox.x + p.bbox.w / 2 - (S / 2) * k
       const my = p.bbox.y + p.bbox.h / 2 - (S / 2) * k
-      printed.push(`<g id="piece-${p.id}-front-plate" mask="url(#m${p.id})"><g transform="${mstr([k, 0, 0, k, mx, my])}">${record(f, S, S, (c) => paintFrontPlate(c, cfg))}</g></g>`)
+      printed.push(`<g id="piece-${p.id}-front-plate" mask="url(#m${p.id})"><g transform="${mstr([k, 0, 0, k, mx, my])}">${record(f, S, S, (c) => paintFrontPlate(c, cfg))}</g>${own(p)}</g>`)
       continue
     }
     const side: Side = p.side === 'left' ? 'left' : 'right'
     const m = mul(invert(pieceToWorld(p, t.pieces)), sheetToWorld(side))
     const host = p.parent !== undefined ? (t.pieces.find((q) => q.id === p.parent) ?? p) : p
     const ref = `#art-${side}${LETTERED.includes(host.role) ? '' : '-plain'}`
-    printed.push(`<g id="piece-${p.id}-${p.role}" mask="url(#m${p.id})"><use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/></g>`)
+    printed.push(`<g id="piece-${p.id}-${p.role}" mask="url(#m${p.id})"><use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/>${own(p)}</g>`)
   }
   const cut = pieces.map((p) => paint(shapeOf(p), `fill="none" stroke="#ec008c" stroke-width="${n(vw * 0.0004)}"`)).join('\n')
 

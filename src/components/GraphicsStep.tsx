@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FONTS, FONT_IDS, type FontId } from '../data/fonts'
 import { loadImage } from '../lib/graphics'
-import { newId, panelName, panelsAllowed, prepareImage } from '../lib/layers'
+import { newId, panelName, panelsAllowed, piecePanels, prepareImage } from '../lib/layers'
+import { useTemplates } from '../lib/templates'
 import { SHAPES, SHAPE_IDS } from '../lib/shapes2d'
 import { platesOnly, useConfig, type Layer, type LayerPanel, type ShapeId } from '../store/config'
 import ColorField from './ColorField'
@@ -27,7 +28,7 @@ function ShapeIcon({ id }: { id: ShapeId }) {
 // The flat template view: the design on the right side of the bike, where
 // layers can be picked and dragged.
 export default function GraphicsStep() {
-  const { config, addLayer, updateLayer, removeLayer, moveLayer } = useConfig()
+  const { config, addLayer, updateLayer, removeLayer, moveLayer, layerTo } = useConfig()
   const selected = useConfig((s) => s.selected)
   const setSelected = useConfig((s) => s.select)
   const chosen = useConfig((s) => s.panel)
@@ -39,9 +40,14 @@ export default function GraphicsStep() {
   const layer = config.layers.find((l) => l.id === selected)
   // Plates-only orders print just the plates, so layers go there.
   const plates = platesOnly(config)
-  const allowed = panelsAllowed(plates)
+  const template = useTemplates((s) => s.templates[config.bikeId])
+  // Main panels, then every other piece of the template on its own.
+  const pieceChoices = piecePanels(template, plates)
+  const allowed: [LayerPanel, string][] = [...panelsAllowed(plates), ...pieceChoices.map((x): [LayerPanel, string] => [x.panel, x.label])]
   const panel: LayerPanel = allowed.some(([p]) => p === chosen) ? chosen : 'sidePlate'
+  const name = (p: LayerPanel) => panelName(p, template)
   const onPanel = config.layers.filter((l) => l.panel === panel)
+  const count = (p: LayerPanel) => ((n) => (n ? `${n} item${n > 1 ? 's' : ''}` : 'Empty'))(config.layers.filter((x) => x.panel === p).length)
   const elsewhere = config.layers.length - onPanel.length
 
   const add = (l: Omit<Layer, 'id' | 'panel'>) => {
@@ -96,17 +102,32 @@ export default function GraphicsStep() {
           1 · Choose a panel <span>or tap a piece on the template</span>
         </div>
         <div className="panel-picks" role="group" aria-label="Panel">
-          {allowed.map(([p, l]) => (
+          {panelsAllowed(plates).map(([p, l]) => (
             <button key={p} className="panel-pick" aria-pressed={panel === p} onClick={() => setPanel(p)}>
               <b>{l}</b>
-              <small>{((n) => (n ? `${n} item${n > 1 ? 's' : ''}` : 'Empty'))(config.layers.filter((x) => x.panel === p).length)}</small>
+              <small>{count(p)}</small>
             </button>
           ))}
         </div>
+        {pieceChoices.length > 0 && (
+          <>
+            <div className="group-label" style={{ marginTop: 14 }}>
+              Other pieces <span>Front plate, fork guards, fender centre and trim</span>
+            </div>
+            <div className="chips" role="group" aria-label="Other pieces">
+              {pieceChoices.map((x) => (
+                <button key={x.panel} className="chip chip-sm" aria-pressed={panel === x.panel} onClick={() => setPanel(x.panel)}>
+                  {x.label}
+                  {config.layers.some((l) => l.panel === x.panel) ? ' •' : ''}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="group">
-        <div className="group-label">2 · Add to the {panelName(panel).toLowerCase()}</div>
+        <div className="group-label">2 · Add to the {name(panel).toLowerCase()}</div>
         <div className="add-row">
           <button className="btn btn-ghost btn-sm" aria-expanded={picking} onClick={() => setPicking(!picking)}>
             <Icon name="plus" size={16} /> Shape
@@ -142,29 +163,22 @@ export default function GraphicsStep() {
 
       <div className="group">
         <div className="group-label">
-          On the {panelName(panel).toLowerCase()} <span>{elsewhere ? `${elsewhere} more on other panels` : 'Top of the list is drawn first'}</span>
+          Layers on the {name(panel).toLowerCase()} <span>{elsewhere ? `Front first · ${elsewhere} on other panels` : 'Front first'}</span>
         </div>
         {onPanel.length ? (
           <ul className="layer-list">
-            {onPanel.map((l) => {
-              const i = config.layers.indexOf(l)
+            {[...onPanel].reverse().map((l, i, list) => {
               return (
                 <li key={l.id} className={l.id === selected ? 'on' : ''}>
                   <button className="layer-name" onClick={() => setSelected(l.id)} aria-pressed={l.id === selected}>
                     {l.kind === 'image' && l.src && <img src={l.src} alt="" />}
                     {label(l)}
                   </button>
-                  <button className="icon-btn icon-sm" onClick={() => moveLayer(l.id, -1)} disabled={i === 0} aria-label={`Move ${label(l)} back`}>
-                    <Icon name="chevron" size={16} />
+                  <button className="icon-btn icon-sm" onClick={() => moveLayer(l.id, 1)} disabled={i === 0} aria-label={`Bring ${label(l)} forward`} title="Bring forward">
+                    <Icon name="up" size={16} />
                   </button>
-                  <button
-                    className="icon-btn icon-sm"
-                    onClick={() => moveLayer(l.id, 1)}
-                    disabled={i === config.layers.length - 1}
-                    aria-label={`Move ${label(l)} forward`}
-                    style={{ transform: 'rotate(180deg)' }}
-                  >
-                    <Icon name="chevron" size={16} />
+                  <button className="icon-btn icon-sm" onClick={() => moveLayer(l.id, -1)} disabled={i === list.length - 1} aria-label={`Send ${label(l)} backward`} title="Send backward">
+                    <Icon name="down" size={16} />
                   </button>
                   <button className="icon-btn icon-sm" onClick={() => (removeLayer(l.id), setSelected(null))} aria-label={`Delete ${label(l)}`}>
                     <Icon name="trash" size={16} />
@@ -238,12 +252,38 @@ export default function GraphicsStep() {
               <div className="group-label" style={{ marginTop: 16 }}>
                 Placed on
               </div>
-              <div className="chips">
+              <select
+                className="select"
+                value={layer.panel}
+                aria-label="Panel this item is on"
+                onChange={(e) => {
+                  const p = e.target.value as LayerPanel
+                  upd({ panel: p, x: 0.5, y: 0.5 })
+                  setPanel(p)
+                }}
+              >
                 {allowed.map(([p, l]) => (
-                  <button key={p} className="chip chip-sm" aria-pressed={layer.panel === p} onClick={() => (upd({ panel: p, x: 0.5, y: 0.5 }), setPanel(p))}>
+                  <option key={p} value={p}>
                     {l}
-                  </button>
+                  </option>
                 ))}
+              </select>
+              <div className="group-label" style={{ marginTop: 16 }}>
+                Order <span>What sits in front</span>
+              </div>
+              <div className="chips">
+                <button className="chip chip-sm" onClick={() => layerTo(layer.id, 'front')}>
+                  To front
+                </button>
+                <button className="chip chip-sm" onClick={() => moveLayer(layer.id, 1)}>
+                  Forward
+                </button>
+                <button className="chip chip-sm" onClick={() => moveLayer(layer.id, -1)}>
+                  Backward
+                </button>
+                <button className="chip chip-sm" onClick={() => layerTo(layer.id, 'back')}>
+                  To back
+                </button>
               </div>
               <div className="sliders" style={{ marginTop: 12 }}>
                 {(

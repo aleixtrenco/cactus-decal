@@ -15,7 +15,11 @@ export interface Logo {
 }
 
 export type ShapeId = 'stripe' | 'twin' | 'chevron' | 'slash' | 'star' | 'circle' | 'triangle' | 'flame' | 'bolt' | 'checker' | 'cactus'
-export type LayerPanel = 'shroud' | 'sidePlate' | 'rearFender' | 'frontFender' | 'kit'
+// A main panel (both sides mirror), the whole kit, or one template piece
+// ("p" + its id) such as a fork guard or the front plate.
+export type LayerPanel = 'shroud' | 'sidePlate' | 'rearFender' | 'frontFender' | 'kit' | `p${number}`
+
+export const pieceIdOf = (panel: LayerPanel): number | null => (/^p\d+$/.test(panel) ? +panel.slice(1) : null)
 
 // Something the customer added on top of the design: a shape, a line of
 // text or an image. Position (x, y) is 0–1 across the panel; size is the
@@ -120,6 +124,7 @@ interface Store {
   updateLayer: (id: string, patch: Partial<Layer>) => void
   removeLayer: (id: string) => void
   moveLayer: (id: string, by: number) => void
+  layerTo: (id: string, end: 'front' | 'back') => void
   setStep: (n: number) => void
   load: (c: KitConfig) => void
 }
@@ -143,10 +148,37 @@ export const useConfig = create<Store>((set) => ({
   setRider: (patch) => set((s) => ({ config: { ...s.config, rider: { ...s.config.rider, ...patch } } })),
   setColor: (slot, hex) => set((s) => ({ config: { ...s.config, colors: { ...s.config.colors, [slot]: hex } } })),
   chooseDesign: (id) =>
-    set((s) => ({
-      // A blank start also drops the make lettering, so the kit is truly empty.
-      config: { ...s.config, designId: id, colors: { ...designById(id).palette }, makeLettering: id === 'blank' ? false : s.config.designId === 'blank' ? true : s.config.makeLettering },
-    })),
+    set((s) => {
+      const d = designById(id)
+      const c = s.config
+      // A blank start is truly empty: no lettering, number, logos or layers,
+      // and plates in the base colour, so the customer builds everything.
+      if (id === 'blank')
+        return {
+          selected: null,
+          config: {
+            ...c,
+            designId: id,
+            colors: { ...d.palette },
+            makeLettering: false,
+            logos: [],
+            layers: [],
+            rider: { ...c.rider, name: '', number: '', plateColor: d.palette.base, numberColor: '#101010', nameColor: '#101010' },
+          },
+        }
+      // Leaving a blank start brings the usual lettering back.
+      const fromBlank = c.designId === 'blank'
+      const base = defaultConfig().rider
+      return {
+        config: {
+          ...c,
+          designId: id,
+          colors: { ...d.palette },
+          makeLettering: fromBlank ? true : c.makeLettering,
+          rider: fromBlank ? { ...c.rider, name: c.rider.name || base.name, number: c.rider.number || base.number, plateColor: base.plateColor, nameColor: base.nameColor } : c.rider,
+        },
+      }
+    }),
   toggleExtra: (id) =>
     set((s) => {
       const has = s.config.extras.includes(id)
@@ -160,14 +192,26 @@ export const useConfig = create<Store>((set) => ({
   updateLayer: (id, patch) =>
     set((s) => ({ config: { ...s.config, layers: s.config.layers.map((l) => (l.id === id ? { ...l, ...patch } : l)) } })),
   removeLayer: (id) => set((s) => ({ config: { ...s.config, layers: s.config.layers.filter((l) => l.id !== id) } })),
+  // Forward (+1) or backward (-1) past the next item on the same panel:
+  // later in the list is drawn on top.
   moveLayer: (id, by) =>
     set((s) => {
       const ls = [...s.config.layers]
       const i = ls.findIndex((l) => l.id === id)
-      const j = Math.max(0, Math.min(ls.length - 1, i + by))
-      if (i < 0 || i === j) return s
-      ;[ls[i], ls[j]] = [ls[j], ls[i]]
+      if (i < 0) return s
+      let j = i + by
+      while (j >= 0 && j < ls.length && ls[j].panel !== ls[i].panel) j += by
+      if (j < 0 || j >= ls.length) return s
+      const [l] = ls.splice(i, 1)
+      ls.splice(j, 0, l)
       return { config: { ...s.config, layers: ls } }
+    }),
+  layerTo: (id, end) =>
+    set((s) => {
+      const l = s.config.layers.find((x) => x.id === id)
+      if (!l) return s
+      const rest = s.config.layers.filter((x) => x.id !== id)
+      return { config: { ...s.config, layers: end === 'front' ? [...rest, l] : [l, ...rest] } }
     }),
   setStep: (n) => set({ step: n }),
   load: (c) => set({ config: c }),

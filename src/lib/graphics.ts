@@ -6,7 +6,7 @@
 import { bikeById, makeInfo } from '../data/bikes'
 import { LOGO_SLOTS, TEXT_PLACEMENTS, type Palette, type Placement } from '../data/designs'
 import { FONTS, fontById, loadFontFaces } from '../data/fonts'
-import type { KitConfig, Layer } from '../store/config'
+import { pieceIdOf, type KitConfig, type Layer } from '../store/config'
 import { firstColor, paintStyle, type Box } from './paint'
 import { SHAPES } from './shapes2d'
 import { tracePath, type Seg } from './shapes'
@@ -391,16 +391,18 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
   ctx.fillStyle = paintStyle(ctx, cfg.rider.plateColor, plateBox)
   ctx.strokeStyle = fills.accent
   ctx.lineWidth = 0.012
+  const blank = cfg.designId === 'blank'
   for (const seg of panels.sidePlate) {
     ctx.beginPath()
     tracePath(ctx, seg)
     ctx.closePath()
     ctx.fill()
-    ctx.stroke()
+    if (!blank) ctx.stroke()
   }
   ctx.restore()
 
-  for (const l of cfg.layers) if (!(l.kind === 'image' && l.cover)) drawLayer(ctx, l, panels, side, W, H)
+  // Layers on a single template piece are drawn with that piece instead.
+  for (const l of cfg.layers) if (!(l.kind === 'image' && l.cover) && pieceIdOf(l.panel) === null) drawLayer(ctx, l, panels, side, W, H)
 
   const font = fontById(cfg.rider.font).css
   const T = TEXT_PLACEMENTS
@@ -409,7 +411,7 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
   if (cfg.makeLettering) {
     drawText(ctx, make.make.toUpperCase(), place(T.make, panels), side, W, H, FONTS.italic.css, cfg.colors.accent, outlineFor(cfg.colors.accent))
   }
-  drawText(ctx, 'CACTUS DECAL LAB', place(T.tag, panels), side, W, H, (px) => `700 ${px}px "Saira"`, outlineFor(cfg.colors.base) === '#101010' ? '#101010' : '#f4f4f2')
+  if (!blank) drawText(ctx, 'CACTUS DECAL LAB', place(T.tag, panels), side, W, H, (px) => `700 ${px}px "Saira"`, outlineFor(cfg.colors.base) === '#101010' ? '#101010' : '#f4f4f2')
 
   for (const logo of cfg.logos) {
     const img = imageCache.get(logo.src)
@@ -435,10 +437,12 @@ export function paintFrontPlate(canvas: HTMLCanvasElement, cfg: KitConfig) {
   ctx.fillStyle = paintStyle(ctx, cfg.rider.plateColor, all)
   ctx.fillRect(0, 0, S, S)
   // Only the middle band (14%–86%) lands on the plate, see Bike.tsx.
-  ctx.fillStyle = paintStyle(ctx, cfg.colors.primary, all)
-  ctx.fillRect(0, 0, S, S * 0.25)
-  ctx.fillStyle = paintStyle(ctx, cfg.colors.accent, all)
-  ctx.fillRect(0, S * 0.25, S, S * 0.03)
+  if (cfg.designId !== 'blank') {
+    ctx.fillStyle = paintStyle(ctx, cfg.colors.primary, all)
+    ctx.fillRect(0, 0, S, S * 0.25)
+    ctx.fillStyle = paintStyle(ctx, cfg.colors.accent, all)
+    ctx.fillRect(0, S * 0.25, S, S * 0.03)
+  }
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillStyle = paintStyle(ctx, cfg.rider.numberColor, { x: S * 0.19, y: S * 0.34, w: S * 0.62, h: S * 0.38 })
@@ -468,7 +472,7 @@ const anchorBoxOf = (segs: Seg[][]): Box => {
 
 // Where a layer sits in world units: its centre and its height.
 export function layerFrame(l: Layer, panels: PanelSet) {
-  const b = l.panel === 'kit' ? KIT_BOX : anchorBox(panels[l.panel])
+  const b = l.panel === 'kit' || pieceIdOf(l.panel) !== null ? KIT_BOX : anchorBox(panels[l.panel as keyof PanelSet])
   const w = b.x1 - b.x0
   const h = b.y1 - b.y0
   return { cx: b.x0 + l.x * w, cy: b.y0 + l.y * h, h: l.size * h, panel: { x: b.x0, y: b.y0, w, h } }
@@ -480,6 +484,11 @@ let measureCtx: CanvasRenderingContext2D | null = null
 // for selection boxes and dragging in the designer).
 export function layerBox(l: Layer, panels: PanelSet) {
   const f = layerFrame(l, panels)
+  return { cx: f.cx, cy: f.cy, w: f.h * layerAspect(l), h: f.h, panel: f.panel }
+}
+
+// Width / height of a layer as drawn.
+export function layerAspect(l: Layer) {
   let aspect = 1
   if (l.kind === 'shape' && l.shape) aspect = SHAPES[l.shape].aspect
   else if (l.kind === 'text') {
@@ -490,7 +499,7 @@ export function layerBox(l: Layer, panels: PanelSet) {
     const img = l.src ? imageCache.get(l.src) : undefined
     aspect = img?.naturalWidth ? img.naturalWidth / img.naturalHeight : 1
   }
-  return { cx: f.cx, cy: f.cy, w: f.h * aspect, h: f.h, panel: f.panel }
+  return aspect
 }
 
 function drawCover(ctx: CanvasRenderingContext2D, l: Layer, W: number, H: number) {
@@ -505,6 +514,45 @@ function drawCover(ctx: CanvasRenderingContext2D, l: Layer, W: number, H: number
   ctx.restore()
 }
 
+// A shape layer at the origin, in units of its height (y up).
+function shapeBody(ctx: CanvasRenderingContext2D, l: Layer) {
+  const s = SHAPES[l.shape!]
+  ctx.fillStyle = paintStyle(ctx, l.fill, { x: -s.aspect / 2, y: -0.5, w: s.aspect, h: 1 })
+  ctx.beginPath()
+  s.draw(ctx, l.outline ?? '#101010')
+  ctx.fill()
+  if (l.outline && l.shape !== 'checker') {
+    ctx.lineWidth = 0.05
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = l.outline
+    ctx.stroke()
+  }
+}
+
+// A text or image layer centred on the origin, `hp` tall (y down).
+function flatBody(ctx: CanvasRenderingContext2D, l: Layer, hp: number) {
+  if (l.kind === 'text' && l.text) {
+    ctx.font = fontById(l.font).css(hp)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const tw = ctx.measureText(l.text).width
+    if (l.outline) {
+      ctx.lineJoin = 'round'
+      ctx.lineWidth = hp * 0.14
+      ctx.strokeStyle = l.outline
+      ctx.strokeText(l.text, 0, 0)
+    }
+    ctx.fillStyle = paintStyle(ctx, l.fill, { x: -tw / 2, y: -hp / 2, w: tw, h: hp })
+    ctx.fillText(l.text, 0, 0)
+  } else if (l.kind === 'image' && l.src) {
+    const img = imageCache.get(l.src)
+    if (img?.complete && img.naturalWidth) {
+      const wp = (img.naturalWidth / img.naturalHeight) * hp
+      ctx.drawImage(img, -wp / 2, -hp / 2, wp, hp)
+    }
+  }
+}
+
 function drawLayer(ctx: CanvasRenderingContext2D, l: Layer, panels: PanelSet, side: Side, W: number, H: number) {
   const f = layerFrame(l, panels)
   ctx.save()
@@ -512,49 +560,42 @@ function drawLayer(ctx: CanvasRenderingContext2D, l: Layer, panels: PanelSet, si
   if (l.kind === 'shape' && l.shape) {
     // Shapes live in world space, so the left side mirrors like the pattern.
     worldTransform(ctx, side, W, H)
-    const s = SHAPES[l.shape]
     ctx.translate(f.cx, f.cy)
     ctx.rotate((l.rotation * Math.PI) / 180)
     ctx.scale(f.h, f.h)
-    ctx.fillStyle = paintStyle(ctx, l.fill, { x: -s.aspect / 2, y: -0.5, w: s.aspect, h: 1 })
-    ctx.beginPath()
-    s.draw(ctx, l.outline ?? '#101010')
-    ctx.fill()
-    if (l.outline && l.shape !== 'checker') {
-      ctx.lineWidth = 0.05
-      ctx.lineJoin = 'round'
-      ctx.strokeStyle = l.outline
-      ctx.stroke()
-    }
+    shapeBody(ctx, l)
   } else {
     // Text and images stay readable on both sides: drawn unmirrored, with
     // the rotation flipped on the left so the layout still mirrors.
     const { px, py, scale } = toPx(f.cx, f.cy, side, W, H)
-    const hp = f.h * scale
     ctx.setTransform(1, 0, 0, 1, px, py)
     ctx.rotate(((side === 'right' ? -1 : 1) * l.rotation * Math.PI) / 180)
-    if (l.kind === 'text' && l.text) {
-      const font = fontById(l.font)
-      ctx.font = font.css(hp)
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      const tw = ctx.measureText(l.text).width
-      if (l.outline) {
-        ctx.lineJoin = 'round'
-        ctx.lineWidth = hp * 0.14
-        ctx.strokeStyle = l.outline
-        ctx.strokeText(l.text, 0, 0)
-      }
-      ctx.fillStyle = paintStyle(ctx, l.fill, { x: -tw / 2, y: -hp / 2, w: tw, h: hp })
-      ctx.fillText(l.text, 0, 0)
-    } else if (l.kind === 'image' && l.src) {
-      const img = imageCache.get(l.src)
-      if (img?.complete && img.naturalWidth) {
-        const wp = (img.naturalWidth / img.naturalHeight) * hp
-        ctx.drawImage(img, -wp / 2, -hp / 2, wp, hp)
-      }
-    }
+    flatBody(ctx, l, f.h * scale)
   }
+  ctx.restore()
+}
+
+type M6 = [number, number, number, number, number, number]
+
+// Where a layer sits on its own template piece (piece panels), in template
+// units (y down): x, y are 0–1 across the piece, size is relative to the
+// piece's smaller side.
+export function pieceFrame(l: Layer, bbox: { x: number; y: number; w: number; h: number }) {
+  return { cx: bbox.x + l.x * bbox.w, cy: bbox.y + (1 - l.y) * bbox.h, h: l.size * Math.min(bbox.w, bbox.h) }
+}
+
+// Draws a piece-panel layer. `base` maps template units to the context.
+export function drawPieceLayer(ctx: CanvasRenderingContext2D, l: Layer, bbox: { x: number; y: number; w: number; h: number }, base: M6) {
+  const f = pieceFrame(l, bbox)
+  ctx.save()
+  ctx.globalAlpha = l.opacity
+  ctx.setTransform(base[0], base[1], base[2], base[3], base[4], base[5])
+  ctx.translate(f.cx, f.cy)
+  ctx.rotate((-l.rotation * Math.PI) / 180)
+  if (l.kind === 'shape' && l.shape) {
+    ctx.scale(f.h, -f.h)
+    shapeBody(ctx, l)
+  } else flatBody(ctx, l, f.h)
   ctx.restore()
 }
 

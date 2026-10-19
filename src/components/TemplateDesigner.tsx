@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import { ensureAssets, layerBox, paintFrontPlate, paintSheet, sheetWidth, WORLD, type Side } from '../lib/graphics'
+import { drawPieceLayer, ensureAssets, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFrame, sheetWidth, WORLD, type Side } from '../lib/graphics'
 import { apply, builtInTemplate, invert, mul6, panelsFor, pieceToWorld, useTemplates, type M6, type Role, type TemplatePiece } from '../lib/templates'
 import { firstColor, paintCss } from '../lib/paint'
-import { platesOnly, useConfig, type Layer, type LayerPanel } from '../store/config'
+import { pieceIdOf, platesOnly, useConfig, type Layer, type LayerPanel } from '../store/config'
 import { panelName } from '../lib/layers'
 import Icon from './Icon'
 
@@ -14,14 +14,15 @@ import Icon from './Icon'
 type Pt = [number, number]
 type View = 'both' | 'right' | 'left'
 
-// Pieces that carry lettering and layers (trim pieces get the pattern only).
+// Pieces that carry lettering and main-panel layers (others get the pattern,
+// plus anything designed on that piece itself).
 const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
 const PLATES: Role[] = ['frontPlate', 'sidePlate']
 const MAIN: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
 const GRAPHICS_STEP = 3
 
-// The panel a template piece belongs to (trim pieces count as the whole kit).
-const panelOf = (host: TemplatePiece): LayerPanel => (MAIN.includes(host.role) ? (host.role as LayerPanel) : 'kit')
+// The panel a template piece belongs to: a main panel, or the piece itself.
+const panelOf = (host: TemplatePiece): LayerPanel => (MAIN.includes(host.role) ? (host.role as LayerPanel) : `p${host.id}`)
 
 // Sheet pixel → world, for each side (inverse of the painter transform).
 function sheetToWorld(side: Side, w: number): M6 {
@@ -66,7 +67,7 @@ function corners(b: { cx: number; cy: number; w: number; h: number }, rotation: 
 }
 
 export default function TemplateDesigner({ interactive = true }: { interactive?: boolean }) {
-  const { config, step, setStep, selected, select, updateLayer, removeLayer, duplicateLayer, panel: chosen, setPanel } = useConfig()
+  const { config, step, setStep, selected, select, updateLayer, removeLayer, duplicateLayer, moveLayer, panel: chosen, setPanel } = useConfig()
   const stored = useTemplates((s) => s.templates[config.bikeId])
   const template = useMemo(() => stored ?? builtInTemplate(config), [stored, config.bikeId]) // eslint-disable-line react-hooks/exhaustive-deps
   const exact = !!stored
@@ -79,12 +80,14 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     piece: TemplatePiece
     dx: number
     dy: number
+    own: boolean
   } | null>(null)
   // Resizing or rotating the selected layer with its handles (CSS pixels).
   const handle = useRef<{ mode: 'size' | 'turn'; cx: number; cy: number; d0: number; a0: number; size: number; rotation: number; sign: number } | null>(null)
   const plates = platesOnly(config)
-  // Plates-only orders can only be designed on the side plates (or whole kit).
-  const panel: LayerPanel = plates && chosen !== 'sidePlate' && chosen !== 'kit' ? 'sidePlate' : chosen
+  // Plates-only orders can only be designed on the plates (or whole kit).
+  const platePanel = (p: LayerPanel) => p === 'sidePlate' || p === 'kit' || template.pieces.some((x) => `p${x.id}` === p && x.role === 'frontPlate')
+  const panel: LayerPanel = plates && !platePanel(chosen) ? 'sidePlate' : chosen
 
   // Track the space available.
   useEffect(() => {
@@ -202,6 +205,8 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
           setM(mul6(mul6(V, invert(toWorld)), sheetToWorld(side, SW)))
           ctx.drawImage(sheet, 0, 0)
         }
+        // Anything designed on this piece itself.
+        for (const l of config.layers) if (l.panel === `p${host.id}` && !l.cover) drawPieceLayer(ctx, l, host.bbox, V)
         ctx.restore()
       }
       // Cut lines on top; the panel being designed stands out, the rest dims.
@@ -246,19 +251,39 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     const r = ref.current!.getBoundingClientRect()
     return [(e.clientX - r.left - fit!.ox) / fit!.s, (e.clientY - r.top - fit!.oy) / fit!.s]
   }
-  // The printed, non-plate piece under a template point (smallest first).
-  const pieceAt = (t: Pt) => pieces.filter((x) => x.printed && x.p.role !== 'frontPlate' && inside(t, x.p.outline)).sort((a, b) => a.p.area - b.p.area)[0]
+  // The printed piece under a template point (smallest first).
+  const pieceAt = (t: Pt) => pieces.filter((x) => x.printed && inside(t, x.p.outline)).sort((a, b) => a.p.area - b.p.area)[0]
+  type Hit = NonNullable<ReturnType<typeof pieceAt>>
+  const pieceById = (id: number) => template.pieces.find((p) => p.id === id)
 
-  const layerAt = (w: Pt): Layer | undefined =>
+  // Inside a box turned by `deg` (counter-clockwise, y up), with some slack.
+  const inBox = (dx: number, dy: number, w: number, h: number, deg: number, tol: number) => {
+    const a = (-deg * Math.PI) / 180
+    const u = dx * Math.cos(a) - dy * Math.sin(a)
+    const v = dx * Math.sin(a) + dy * Math.cos(a)
+    return Math.abs(u) < w / 2 + tol && Math.abs(v) < h / 2 + tol
+  }
+  // A piece-panel layer's box in template units.
+  const pieceBox = (l: Layer, piece: TemplatePiece) => {
+    const f = pieceFrame(l, piece.bbox)
+    return { cx: f.cx, cy: f.cy, w: f.h * layerAspect(l), h: f.h }
+  }
+  // The topmost layer under the pointer on the piece it hit.
+  const layerAt = (t: Pt, hit: Hit): Layer | undefined =>
     [...movable].reverse().find((l) => {
+      const pid = pieceIdOf(l.panel)
+      if (pid !== null) {
+        const piece = pieceById(pid)
+        if (!piece || (hit.host.id !== pid && hit.p.id !== pid)) return false
+        const b = pieceBox(l, piece)
+        // Template y points down: flip it to measure the turn.
+        return inBox(t[0] - b.cx, b.cy - t[1], b.w, b.h, l.rotation, 2 / fit!.s)
+      }
+      // Main-panel layers only appear on the main panels.
+      if (!MAIN.includes(hit.host.role)) return false
+      const w = apply(hit.toWorld, t)
       const b = layerBox(l, panels)
-      const a = (-l.rotation * Math.PI) / 180
-      const dx = w[0] - b.cx
-      const dy = w[1] - b.cy
-      const u = dx * Math.cos(a) - dy * Math.sin(a)
-      const v = dx * Math.sin(a) + dy * Math.cos(a)
-      const tol = 0.015
-      return Math.abs(u) < b.w / 2 + tol && Math.abs(v) < b.h / 2 + tol
+      return inBox(w[0] - b.cx, w[1] - b.cy, b.w, b.h, l.rotation, 0.015)
     })
 
   const down = (e: RPointerEvent) => {
@@ -266,22 +291,24 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     const t = toTemplate(e)
     const hitPiece = pieceAt(t)
     if (!hitPiece) return select(null)
-    const w = apply(hitPiece.toWorld, t)
-    const l = layerAt(w)
+    const l = layerAt(t, hitPiece)
     if (step !== GRAPHICS_STEP) setStep(GRAPHICS_STEP)
     if (!l) {
       // Tapping a piece picks its panel for designing.
       const p = panelOf(hitPiece.host)
-      setPanel(plates && p !== 'sidePlate' ? 'sidePlate' : p)
+      setPanel(plates && !platePanel(p) ? 'sidePlate' : p)
       return select(null)
     }
     select(l.id)
-    const b = layerBox(l, panels)
-    drag.current = {
-      id: l.id,
-      piece: hitPiece.p,
-      dx: w[0] - b.cx,
-      dy: w[1] - b.cy,
+    const pid = pieceIdOf(l.panel)
+    const piece = pid !== null ? pieceById(pid) : undefined
+    if (piece) {
+      const b = pieceBox(l, piece)
+      drag.current = { id: l.id, piece, dx: t[0] - b.cx, dy: t[1] - b.cy, own: true }
+    } else {
+      const w = apply(hitPiece.toWorld, t)
+      const b = layerBox(l, panels)
+      drag.current = { id: l.id, piece: hitPiece.p, dx: w[0] - b.cx, dy: w[1] - b.cy, own: false }
     }
     ;(e.target as Element).setPointerCapture(e.pointerId)
   }
@@ -291,14 +318,21 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       if (fit && ref.current) {
         const t = toTemplate(e)
         const hp = pieceAt(t)
-        ref.current.style.cursor = hp && layerAt(apply(hp.toWorld, t)) ? 'move' : 'default'
+        ref.current.style.cursor = hp && layerAt(t, hp) ? 'move' : hp ? 'pointer' : 'default'
       }
       return
     }
     const t = toTemplate(e)
+    if (d.own) {
+      // A layer on its own piece moves in the piece's frame.
+      const { x, y, w, h } = d.piece.bbox
+      updateLayer(d.id, { x: +((t[0] - d.dx - x) / w).toFixed(3), y: +(1 - (t[1] - d.dy - y) / h).toFixed(3) })
+      return
+    }
     // Follow whichever piece the pointer is over; off the pieces, keep the
     // one the drag started on.
-    const toWorld = pieceAt(t)?.toWorld ?? pieceToWorld(d.piece, template.pieces)
+    const over = pieceAt(t)
+    const toWorld = over && MAIN.includes(over.host.role) ? over.toWorld : pieceToWorld(d.piece, template.pieces)
     const [wx, wy] = apply(toWorld, t)
     const l = config.layers.find((x) => x.id === d.id)
     if (!l) return
@@ -314,6 +348,16 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
   const sel = movable.find((l) => l.id === selected)
   const selPolys = useMemo(() => {
     if (!sel || !fit) return []
+    const toCssPt = ([x, y]: Pt): Pt => [x * fit.s + fit.ox, y * fit.s + fit.oy]
+    const pid = pieceIdOf(sel.panel)
+    if (pid !== null) {
+      const piece = pieceById(pid)
+      if (!piece || !pieces.some((x) => x.p.id === pid)) return []
+      const b = pieceBox(sel, piece)
+      // Template y points down: a negative height and turn keep the box upright.
+      const pts = corners({ ...b, h: -b.h }, -sel.rotation).map(toCssPt)
+      return [{ pts, points: pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '), sign: -1 }]
+    }
     const b = layerBox(sel, panels)
     const world = corners(b, sel.rotation)
     const toCss = (pts: Pt[]) => pts.map(([x, y]) => `${(x * fit.s + fit.ox).toFixed(1)},${(y * fit.s + fit.oy).toFixed(1)}`).join(' ')
@@ -426,6 +470,12 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
               <input type="color" value={firstColor(sel.fill)} onChange={(e) => updateLayer(sel.id, { fill: e.target.value })} aria-label="Colour" />
             </label>
           )}
+          <button onClick={() => moveLayer(sel.id, 1)} aria-label="Bring forward" title="Bring forward">
+            <Icon name="up" size={16} />
+          </button>
+          <button onClick={() => moveLayer(sel.id, -1)} aria-label="Send backward" title="Send backward">
+            <Icon name="down" size={16} />
+          </button>
           <button onClick={() => duplicateLayer(sel.id)} aria-label="Duplicate" title="Duplicate">
             <Icon name="layers" size={16} />
           </button>
@@ -437,7 +487,7 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       {interactive && (
         <div className="designer-bar">
           <span className="editing-pill">
-            Designing: <b>{panelName(panel)}</b>
+            Designing: <b>{panelName(panel, template)}</b>
           </span>
           <div className="seg" role="group" aria-label="Template view">
             {(
