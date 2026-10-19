@@ -137,10 +137,3 @@ export const LOGO_SLOTS: Record<LogoSlot, Placement & { label: string }> = {
   'plate-top': { label: 'Side plate, top', panel: 'sidePlate', rx: 0.5, ry: 0.82, rw: 0.4, rh: 0.15 },
   fender: { label: 'Rear fender', panel: 'rearFender', rx: 0.22, ry: 0.55, rw: 0.16, rh: 0.21 },
 }
-
-export const TEXT_PLACEMENTS: Record<'number' | 'name' | 'make' | 'tag', Placement> = {
-  number: { panel: 'sidePlate', rx: 0.5, ry: 0.45, rw: 0.7, rh: 0.62 },
-  name: { panel: 'shroud', rx: 0.5, ry: 0.38, rw: 0.58, rh: 0.155 },
-  make: { panel: 'shroud', rx: 0.46, ry: 0.69, rw: 0.65, rh: 0.19 },
-  tag: { panel: 'rearFender', rx: 0.49, ry: 0.27, rw: 0.3, rh: 0.126 },
-}

@@ -9,13 +9,13 @@
 // front.
 
 import { useLoader, useThree } from '@react-three/fiber'
-import { use, useEffect, useMemo } from 'react'
+import { use, useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
-import { drawPieceLayer, ensureAssets, paintDecalSheet, paintFrontPlate, paintSheet, pieceVariant, sheetWidth, WORLD, type Side } from '../lib/graphics'
+import { drawPieceLayer, ensureAssets, paintDecalSheet, paintFrontPlate, paintSheet, pieceVariant, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
 import { FRONT_WHEEL } from '../lib/shapes'
 import { invert, modelUrl, mul6, onModel, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role, type TemplatePiece } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
@@ -208,13 +208,16 @@ if (uOn > 0.5) {
   }
   // Front number plate, projected from the front.
   vec2 pr = vec2(-vDecalPos.z / uPlateRect.y + 0.5, (vDecalPos.y - uPlateRect.x) / uPlateRect.z + 0.5);
-  if (vDecalNormal.x > 0.25 && all(greaterThan(pr, vec2(0.0))) && all(lessThan(pr, vec2(1.0)))) {
+  bool onPlate = vDecalNormal.x > 0.25 && all(greaterThan(pr, vec2(0.0))) && all(lessThan(pr, vec2(1.0)));
+  if (onPlate) {
     vec2 fuv = vec2((-vDecalPos.z + 0.6) / 1.2, v);
-    if (abs((uCam.x - vDecalPos.x) - camDist(uDepthF, fuv)) < tol * 1.5) dec = vec4(texture2D(uPlate, pr).rgb, 1.0);
+    onPlate = abs((uCam.x - vDecalPos.x) - camDist(uDepthF, fuv)) < tol * 1.5;
+    if (onPlate) dec = vec4(texture2D(uPlate, pr).rgb, 1.0);
   }
   // Front fender, projected from above.
   vec4 fr = uFenderRect;
-  if (fr.w > 0.5 && vDecalNormal.y > 0.2 && vDecalPos.x > fr.x && vDecalPos.x < fr.y && abs(vDecalPos.z) < fr.z) {
+  // The plate leans back, so it is also seen from above: keep the fender art off it.
+  if (!onPlate && fr.w > 0.5 && vDecalNormal.y > 0.2 && vDecalPos.x > fr.x && vDecalPos.x < fr.y && abs(vDecalPos.z) < fr.z) {
     vec2 tuv = vec2(0.5 - vDecalPos.z / (2.0 * fr.z), 1.0 - (vDecalPos.x - fr.x) / (fr.y - fr.x));
     vec2 duv = vec2((vDecalPos.x - uWorld.x) / ww, (-vDecalPos.z + ${TOP_Z.toFixed(3)}) / ${(TOP_Z * 2).toFixed(3)});
     if (abs((uCam.x - vDecalPos.y) - camDist(uDepthT, duv)) < tol * 1.5) {
@@ -395,6 +398,60 @@ function useModel(url: string) {
   })
 }
 
+// Where the plastics show from both sides, as a grid over WORLD: lettering is
+// kept to these areas so it never lands on a vent, a hole or something in
+// front of the plastics. Rendered once per fitted model with the page's own
+// renderer (no extra WebGL context).
+const SEEN_W = 400
+const SEEN_H = 200
+function seenArea(gl: THREE.WebGLRenderer, root: THREE.Object3D, cams: ReturnType<typeof sideCams>, id: string): SeenArea {
+  const decalOn = isDecalSurface(root)
+  const white = new THREE.MeshBasicMaterial({ color: '#ffffff', side: THREE.DoubleSide })
+  const black = new THREE.MeshBasicMaterial({ color: '#000000', side: THREE.DoubleSide })
+  const saved = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>()
+  root.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh) return
+    saved.set(m, m.material)
+    m.material = Array.isArray(m.material) ? m.material.map((x) => (decalOn(m, x) ? white : black)) : decalOn(m, m.material) ? white : black
+  })
+  const scene = new THREE.Scene()
+  scene.background = new THREE.Color('#000000')
+  const parent = root.parent
+  scene.add(root)
+  const rt = new THREE.WebGLRenderTarget(SEEN_W, SEEN_H)
+  const prev = gl.getRenderTarget()
+  const read = (cam: THREE.Camera) => {
+    const px = new Uint8Array(SEEN_W * SEEN_H * 4)
+    gl.setRenderTarget(rt)
+    gl.clear()
+    gl.render(scene, cam)
+    gl.readRenderTargetPixels(rt, 0, 0, SEEN_W, SEEN_H, px)
+    return px
+  }
+  const r = read(cams.right)
+  const l = read(cams.left)
+  gl.setRenderTarget(prev)
+  rt.dispose()
+  scene.remove(root)
+  parent?.add(root)
+  for (const [m, mat] of saved) m.material = mat
+  white.dispose()
+  black.dispose()
+  const { x0, x1, y0, y1 } = WORLD
+  return {
+    id,
+    // Rows run bottom to top; the left camera sees the bike mirrored.
+    at: (x, y) => {
+      const row = Math.floor(((y - y0) / (y1 - y0)) * SEEN_H)
+      const cr = Math.floor(((x - x0) / (x1 - x0)) * SEEN_W)
+      const cl = SEEN_W - 1 - cr
+      if (row < 0 || row >= SEEN_H || cr < 0 || cr >= SEEN_W) return false
+      return r[(row * SEEN_W + cr) * 4] > 128 && l[(row * SEEN_W + cl) * 4] > 128
+    },
+  }
+}
+
 export default function RealBike({ cfg, template }: { cfg: KitConfig; template: BikeTemplate & { model: ModelSetup } }) {
   const gltf = useModel(use(resolveModel(modelUrl(template.model))))
   const gl = useThree((s) => s.gl)
@@ -426,6 +483,7 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
   }, [gltf, P])
 
   const { yaw, scale, dx, dy, plate } = template.model
+  const [seen, setSeen] = useState<SeenArea>()
   // Fit the model, then take depth snapshots from each side and the front.
   useEffect(() => {
     fitModel(root.children[0], template.model)
@@ -448,6 +506,7 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
     if (f) P.uniforms.uFenderRect.value.set(f.x0, f.x1, f.w, 1)
     else P.uniforms.uFenderRect.value.set(0, 0, 0, 0)
     P.uniforms.uOn.value = 1
+    setSeen(seenArea(gl, root.children[0], cams, `${template.model.url}|${yaw}|${scale}|${dx}|${dy}`))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [root, gl, P, yaw, scale, dx, dy, plate.y, plate.w, plate.h])
 
@@ -458,14 +517,14 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
     let alive = true
     const paint = () => {
       const roles = platesOnly(cfg) ? (['sidePlate'] as Role[]) : undefined
-      paintDecalSheet(P.sheets.right, cfg, 'right', sideOutlines(template, 'right', roles), panels)
+      paintDecalSheet(P.sheets.right, cfg, 'right', sideOutlines(template, 'right', roles), panels, seen)
       // The bike is symmetric: the left side uses the right side's placed
       // outlines (mirrored left pieces can't be fitted as precisely).
       const right = sideOutlines(template, 'right', roles)
-      paintDecalSheet(P.sheets.left, cfg, 'left', right.length ? right : sideOutlines(template, 'left', roles), panels)
+      paintDecalSheet(P.sheets.left, cfg, 'left', right.length ? right : sideOutlines(template, 'left', roles), panels, seen)
       paintSidePieces(P, cfg, template, panels, roles)
       for (const side of ['right', 'left'] as const) clearAreas(P.sheets[side], side, template.model.exclude)
-      paintFrontPlate(P.sheets.plate, cfg)
+      paintFrontPlate(P.sheets.plate, cfg, template.model.plate)
       paintPlatePieces(P, cfg, template)
       paintFender(P, cfg, template, panels)
       for (const t of P.textures) t.needsUpdate = true
@@ -475,7 +534,7 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
     return () => {
       alive = false
     }
-  }, [cfg, template, panels, P])
+  }, [cfg, template, panels, P, seen])
 
   useEffect(() => {
     P.uniforms.uPlastic.value.set(plasticsHex(cfg))

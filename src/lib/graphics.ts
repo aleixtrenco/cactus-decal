@@ -4,7 +4,7 @@
 // mirrored (front on the left) with text kept readable.
 
 import { bikeById, makeInfo } from '../data/bikes'
-import { LOGO_SLOTS, TEXT_PLACEMENTS, type Palette, type Placement } from '../data/designs'
+import { LOGO_SLOTS, type Palette, type Placement } from '../data/designs'
 import { FONTS, fontById, loadFontFaces } from '../data/fonts'
 import { pieceIdOf, type KitConfig, type Layer } from '../store/config'
 import { firstColor, paintStyle, type Box } from './paint'
@@ -640,8 +640,16 @@ function anchorBox(panels: Seg[][]) {
 // The largest rectangle of a given width/height ratio that fits inside a
 // panel's real outline (not just its bounding box), so the race number never
 // crosses a slanted edge. Cached: it only changes with the outline.
-const fitCache = new Map<string, { x0: number; y0: number; x1: number; y1: number }>()
-function insideBox(panels: Seg[][], aspect: number) {
+// `seen` (optional) marks where the plastics really show on a 3D model, so a
+// box also avoids vents, holes and parts covered by something else.
+export interface SeenArea {
+  id: string
+  at: (x: number, y: number) => boolean
+}
+
+const fitCache = new Map<string, Rect>()
+type Rect = { x0: number; y0: number; x1: number; y1: number }
+function insideBox(panels: Seg[][], aspect: number, seen?: SeenArea): Rect {
   const pts = (seg: Seg[]) => seg.map((p) => (p.length === 5 ? [p[3], p[4]] : [p[1], p[2]]) as [number, number])
   const b = anchorBox(panels)
   const seg = panels.find((sg) => {
@@ -650,7 +658,7 @@ function insideBox(panels: Seg[][], aspect: number) {
   })
   if (!seg) return b
   const poly = pts(seg)
-  const key = `${aspect}|${poly.length}|${poly[0]}|${poly[poly.length >> 1]}|${b.x0},${b.y0},${b.x1},${b.y1}`
+  const key = `${aspect}|${poly.length}|${poly[0]}|${poly[poly.length >> 1]}|${b.x0},${b.y0},${b.x1},${b.y1}|${seen?.id ?? ''}`
   const hit = fitCache.get(key)
   if (hit) return hit
   const inside = (x: number, y: number) => {
@@ -667,6 +675,9 @@ function insideBox(panels: Seg[][], aspect: number) {
   }
   const fits = (cx: number, cy: number, h: number) => {
     const w = h * aspect
+    if (seen)
+      for (let i = 0; i <= 8; i++)
+        for (let j = 0; j <= 4; j++) if (!seen.at(cx - w / 2 + (w * i) / 8, cy - h / 2 + (h * j) / 4)) return false
     for (let i = 0; i <= 6; i++) {
       const t = i / 6
       for (const [x, y] of [
@@ -686,7 +697,7 @@ function insideBox(panels: Seg[][], aspect: number) {
     for (let j = 1; j < 16; j++) {
       const cx = b.x0 + (W * i) / 24
       const cy = b.y0 + (H * j) / 16
-      if (!inside(cx, cy)) continue
+      if (!inside(cx, cy) || (seen && !seen.at(cx, cy))) continue
       let lo = best.h
       let hi = H
       if (!fits(cx, cy, lo + 1e-4)) continue
@@ -698,17 +709,33 @@ function insideBox(panels: Seg[][], aspect: number) {
       if (lo > best.h) best = { cx, cy, h: lo }
     }
   const w = best.h * aspect
-  const out = best.h ? { x0: best.cx - w / 2, y0: best.cy - best.h / 2, x1: best.cx + w / 2, y1: best.cy + best.h / 2 } : b
+  const out: Rect = best.h ? { x0: best.cx - w / 2, y0: best.cy - best.h / 2, x1: best.cx + w / 2, y1: best.cy + best.h / 2 } : seen ? insideBox(panels, aspect) : b
   fitCache.set(key, out)
   return out
 }
 
 // Where the race number goes: centred in the biggest box inside the side plate.
-function numberBox(panels: PanelSet) {
-  const b = insideBox(panels.sidePlate, 1.2)
+function numberBox(panels: PanelSet, seen?: SeenArea) {
+  const b = insideBox(panels.sidePlate, 1.2, seen)
   const w = b.x1 - b.x0
   const h = b.y1 - b.y0
   return { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, w: w * 1.05, h: h * 1.05 }
+}
+
+// Name and make lettering share the biggest wide box inside the shroud (make
+// on top), and the tag sits inside the rear fender, so none of it runs off a
+// panel edge or onto the seat or tank on a real model.
+function shroudText(panels: PanelSet, seen?: SeenArea) {
+  const b = insideBox(panels.shroud, 2.4, seen)
+  const w = b.x1 - b.x0
+  const h = b.y1 - b.y0
+  const x = (b.x0 + b.x1) / 2
+  return { make: { x, y: b.y0 + h * 0.66, w: w * 0.96, h: h * 0.56 }, name: { x, y: b.y0 + h * 0.17, w: w * 0.8, h: h * 0.28 } }
+}
+
+function tagBox(panels: PanelSet, seen?: SeenArea) {
+  const b = insideBox(panels.rearFender, 7, seen)
+  return { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, w: (b.x1 - b.x0) * 0.9, h: (b.y1 - b.y0) * 0.8 }
 }
 
 function place(p: Placement, panels: PanelSet) {
@@ -723,7 +750,7 @@ function place(p: Placement, panels: PanelSet) {
 // The design with another base colour, for one piece (pattern only).
 export const pieceVariant = (cfg: KitConfig, base: string): KitConfig => ({ ...cfg, colors: { ...cfg.colors, base }, partColors: {} })
 
-export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side, panels: PanelSet = panelsFor(cfg), { lettering = true } = {}) {
+export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side, panels: PanelSet = panelsFor(cfg), { lettering = true, seen }: { lettering?: boolean; seen?: SeenArea } = {}) {
   const W = canvas.width
   const H = canvas.height
   const ctx = canvas.getContext('2d')!
@@ -777,13 +804,13 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
   for (const l of cfg.layers) if (!(l.kind === 'image' && l.cover) && pieceIdOf(l.panel) === null) drawLayer(ctx, l, panels, side, W, H)
 
   const font = fontById(cfg.rider.font).css
-  const T = TEXT_PLACEMENTS
-  drawText(ctx, cfg.rider.number, numberBox(panels), side, W, H, font, cfg.rider.numberColor, outlineFor(cfg.rider.numberColor) === '#101010' ? '#101010' : undefined)
-  drawText(ctx, cfg.rider.name.toUpperCase(), place(T.name, panels), side, W, H, font, cfg.rider.nameColor, outlineFor(cfg.rider.nameColor))
+  const T = shroudText(panels, seen)
+  drawText(ctx, cfg.rider.number, numberBox(panels, seen), side, W, H, font, cfg.rider.numberColor, outlineFor(cfg.rider.numberColor) === '#101010' ? '#101010' : undefined)
+  drawText(ctx, cfg.rider.name.toUpperCase(), T.name, side, W, H, font, cfg.rider.nameColor, outlineFor(cfg.rider.nameColor))
   if (cfg.makeLettering) {
-    drawText(ctx, make.make.toUpperCase(), place(T.make, panels), side, W, H, FONTS.italic.css, cfg.colors.accent, outlineFor(cfg.colors.accent))
+    drawText(ctx, make.make.toUpperCase(), T.make, side, W, H, FONTS.italic.css, cfg.colors.accent, outlineFor(cfg.colors.accent))
   }
-  if (!blank) drawText(ctx, 'CACTUS DECAL LAB', place(T.tag, panels), side, W, H, (px) => `700 ${px}px "Saira"`, outlineFor(cfg.colors.base) === '#101010' ? '#101010' : '#f4f4f2')
+  if (!blank) drawText(ctx, 'CACTUS DECAL LAB', tagBox(panels, seen), side, W, H, (px) => `700 ${px}px "Saira"`, outlineFor(cfg.colors.base) === '#101010' ? '#101010' : '#f4f4f2')
 
   for (const logo of cfg.logos) {
     const img = imageCache.get(logo.src)
@@ -801,27 +828,39 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
   ctx.setTransform(1, 0, 0, 1, 0, 0)
 }
 
-export function paintFrontPlate(canvas: HTMLCanvasElement, cfg: KitConfig) {
+// `on` describes the plate on a 3D model: the square canvas is stretched over
+// a `w`×`h` area there, so text is pre-squeezed to read undistorted, and
+// `number` is the band (fractions from the top) clear of e.g. a headlight.
+export function paintFrontPlate(canvas: HTMLCanvasElement, cfg: KitConfig, on?: { w: number; h: number; number?: [number, number] }) {
   const S = canvas.width
   const ctx = canvas.getContext('2d')!
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   const all = { x: 0, y: 0, w: S, h: S }
+  const [top, bottom] = on?.number ?? [0.34, 0.72]
+  const sx = on ? on.h / on.w : 1
   ctx.fillStyle = paintStyle(ctx, cfg.rider.plateColor, all)
   ctx.fillRect(0, 0, S, S)
   // Only the middle band (14%–86%) lands on the plate, see Bike.tsx.
-  if (cfg.designId !== 'blank') {
+  const band = Math.min(0.25, top - 0.09)
+  if (cfg.designId !== 'blank' && band > 0.05) {
     ctx.fillStyle = paintStyle(ctx, cfg.colors.primary, all)
-    ctx.fillRect(0, 0, S, S * 0.25)
+    ctx.fillRect(0, 0, S, S * band)
     ctx.fillStyle = paintStyle(ctx, cfg.colors.accent, all)
-    ctx.fillRect(0, S * 0.25, S, S * 0.03)
+    ctx.fillRect(0, S * band, S, S * 0.03)
   }
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillStyle = paintStyle(ctx, cfg.rider.numberColor, { x: S * 0.19, y: S * 0.34, w: S * 0.62, h: S * 0.38 })
-  fitText(ctx, cfg.rider.number, fontById(cfg.rider.font).css, S * 0.62, S * 0.38)
-  ctx.fillText(cfg.rider.number, S / 2, S * 0.53)
-  fitText(ctx, cfg.rider.name.toUpperCase(), FONTS.italic.css, S * 0.5, S * 0.08)
-  ctx.fillText(cfg.rider.name.toUpperCase(), S / 2, S * 0.78)
+  const text = (t: string, font: (px: number) => string, maxW: number, maxH: number, y: number) => {
+    ctx.save()
+    ctx.translate(S / 2, y)
+    ctx.scale(sx, 1)
+    fitText(ctx, t, font, maxW / sx, maxH)
+    ctx.fillText(t, 0, 0)
+    ctx.restore()
+  }
+  ctx.fillStyle = paintStyle(ctx, cfg.rider.numberColor, { x: S * 0.19, y: S * top, w: S * 0.62, h: S * (bottom - top) })
+  text(cfg.rider.number, fontById(cfg.rider.font).css, S * 0.62, S * (bottom - top), S * (top + bottom) / 2)
+  if (bottom < 0.74) text(cfg.rider.name.toUpperCase(), FONTS.italic.css, S * 0.5, S * 0.08, S * 0.78)
 }
 
 export async function ensureAssets(cfg: KitConfig) {
@@ -973,8 +1012,8 @@ export function drawPieceLayer(ctx: CanvasRenderingContext2D, l: Layer, bbox: { 
 
 // For real 3D models: the kit artwork with everything outside the printed
 // pieces made transparent, so it can be projected onto the model.
-export function paintDecalSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side, outlines: [number, number][][], panels: PanelSet = panelsFor(cfg)) {
-  paintSheet(canvas, cfg, side, panels)
+export function paintDecalSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side, outlines: [number, number][][], panels: PanelSet = panelsFor(cfg), seen?: SeenArea) {
+  paintSheet(canvas, cfg, side, panels, { seen })
   const ctx = canvas.getContext('2d')!
   ctx.save()
   worldTransform(ctx, side, canvas.width, canvas.height)
