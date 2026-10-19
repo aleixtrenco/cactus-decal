@@ -8,6 +8,10 @@ export const CONTACT = {
 
 export const FAQ: { q: string; a: string }[] = [
   {
+    q: 'Can I order just number plates?',
+    a: 'Yes. Number plates only (the front plate and both side plates) are AED 400, designed in the same configurator and cut to your model’s template.',
+  },
+  {
     q: 'How long does a custom kit take?',
     a: 'Once you approve your proof we print within 3–5 working days. Delivery across the UAE usually takes 1–2 days after that.',
   },

@@ -14,10 +14,9 @@ import { FONTS } from '../data/fonts'
 import { bikeById, typeLabel } from '../data/bikes'
 import { designById } from '../data/designs'
 import { FINISHES, MATERIALS } from '../data/pricing'
-import type { KitConfig } from '../store/config'
+import { platesOnly, type KitConfig } from '../store/config'
 import { paintFrontPlate, paintSheet, WORLD, type Side } from './graphics'
-import type { Seg } from './shapes'
-import { invert, mount, pieceElements, pieceToWorld, panelsFor, toRoot, type BikeTemplate, type M6, type Role, type TemplatePiece } from './templates'
+import { builtInTemplate, invert, mount, pieceElements, pieceToWorld, panelsFor, toRoot, type BikeTemplate, type M6, type Role, type TemplatePiece } from './templates'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const n = (v: number) => (Math.abs(v) < 1e-9 ? '0' : +v.toFixed(3) + '')
@@ -261,7 +260,11 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
   const f = await loadFonts()
   const bike = bikeById(cfg.bikeId)
   const t = template ?? builtInTemplate(cfg)
-  const pieces = t.pieces.filter((p) => p.role !== 'ignore')
+  const hostRole = (p: TemplatePiece) => (p.parent !== undefined ? (t.pieces.find((q) => q.id === p.parent) ?? p) : p).role
+  // A plates-only order prints the front plate and the side plates (with
+  // anything layered on them), nothing else.
+  const PLATES: Role[] = ['frontPlate', 'sidePlate']
+  const pieces = t.pieces.filter((p) => p.role !== 'ignore' && (!platesOnly(cfg) || PLATES.includes(hostRole(p))))
 
   // Exact piece shapes from the original file when we have it.
   const shapes = new Map<number, string>()
@@ -319,7 +322,7 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate): Pr
   const cut = pieces.map((p) => paint(shapeOf(p), `fill="none" stroke="#ec008c" stroke-width="${n(vw * 0.0004)}"`)).join('\n')
 
   const info = [
-    `CACTUS DECAL LAB · ${bike.make} ${bike.model} (${bike.years}) · ${typeLabel(bike.type)} kit`,
+    `CACTUS DECAL LAB · ${bike.make} ${bike.model} (${bike.years}) · ${platesOnly(cfg) ? 'NUMBER PLATES ONLY (front + sides)' : `${typeLabel(bike.type)} kit`}`,
     `Design ${designById(cfg.designId).name} · ${FINISHES[cfg.finish].label} · ${MATERIALS[cfg.material].label}`,
     `Rider ${cfg.rider.name || '-'} #${cfg.rider.number || '-'} · Colours ${Object.values(cfg.colors).join(' ')}`,
     template ? `Template ${t.fileName}${t.svgText ? '' : ' (outline copy: upload the original SVG in /admin for exact cut lines)'}` : 'No template for this model: built-in outlines, NOT for production.',
@@ -345,32 +348,6 @@ ${info.map((s, i) => `<text x="${n(vx)}" y="${n(vy + vh + fs * (1.6 + i * 1.3))}
   return { svg, fileName: `cdl-print-${slug}.svg`, exact: !!t.svgText }
 }
 
-// Fallback when a model has no template: the built-in outlines laid out
-// like a cut file (right side on the left, left side mirrored on the right).
-function builtInTemplate(cfg: KitConfig): BikeTemplate {
-  const set = panelsFor(cfg)
-  const pieces: TemplatePiece[] = []
-  const roles: [Role, Seg[][]][] = [
-    ['shroud', set.shroud],
-    ['sidePlate', set.sidePlate],
-    ['rearFender', set.rearFender],
-    ['frontFender', set.frontFender],
-  ]
-  const k = 1000
-  for (const side of ['right', 'left'] as const)
-    for (const [role, segs] of roles)
-      for (const seg of segs) {
-        // World → layout: right side on the left half, mirrored on the right.
-        const pts = seg.map((s) => (s.length === 5 ? [s[3], s[4]] : [s[1], s[2]]) as [number, number])
-        const outline = pts.map(([x, y]) => [side === 'right' ? (x - 1.3) * k : (1.3 - x) * k + 2700, (1.5 - y) * k] as [number, number])
-        const xs = outline.map((q) => q[0])
-        const ys = outline.map((q) => q[1])
-        const bbox = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }
-        pieces.push({ id: pieces.length, role, side, outline, bbox, area: bbox.w * bbox.h })
-      }
-  // Built-in pieces already sit at their world spot: use an exact transform.
-  return { bikeId: cfg.bikeId, fileName: 'built-in', viewBox: [-2600, 0, 5300, 1300], pieces, updatedAt: '' }
-}
 
 export function downloadText(text: string, fileName: string, type = 'image/svg+xml') {
   const url = URL.createObjectURL(new Blob([text], { type }))

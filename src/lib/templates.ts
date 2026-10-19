@@ -473,9 +473,10 @@ export function panelSet(t: BikeTemplate | undefined, lift: number, rise: number
 }
 
 // Outlines (in world units) of the printed pieces on one side of the bike.
-export function sideOutlines(t: BikeTemplate, side: 'right' | 'left'): Pt[][] {
+// `roles` limits it to some pieces (e.g. side plates for a plates-only kit).
+export function sideOutlines(t: BikeTemplate, side: 'right' | 'left', roles?: Role[]): Pt[][] {
   return t.pieces
-    .filter((p) => p.side === side && onModel(p, t.pieces))
+    .filter((p) => p.side === side && onModel(p, t.pieces) && (!roles || roles.includes(p.role)))
     .map((p) => {
       const m = pieceToWorld(p, t.pieces)
       return p.outline.map((pt) => apply(m, pt))
@@ -485,6 +486,33 @@ export function sideOutlines(t: BikeTemplate, side: 'right' | 'left'): Pt[][] {
 export function panelsFor(cfg: { bikeId: string }) {
   const m = makeInfo(bikeById(cfg.bikeId).make)
   return panelSet(useTemplates.getState().templates[cfg.bikeId], m.shroudLift, m.tailRise)
+}
+
+// Fallback when a model has no template: the built-in outlines laid out
+// like a cut file (right side on the left, left side mirrored on the right).
+export function builtInTemplate(cfg: { bikeId: string }): BikeTemplate {
+  const set = panelsFor(cfg)
+  const pieces: TemplatePiece[] = []
+  const roles: [Role, Seg[][]][] = [
+    ['shroud', set.shroud],
+    ['sidePlate', set.sidePlate],
+    ['rearFender', set.rearFender],
+    ['frontFender', set.frontFender],
+  ]
+  const k = 1000
+  for (const side of ['right', 'left'] as const)
+    for (const [role, segs] of roles)
+      for (const seg of segs) {
+        // World → layout: right side on the left half, mirrored on the right.
+        const pts = seg.map((s) => (s.length === 5 ? [s[3], s[4]] : [s[1], s[2]]) as [number, number])
+        const outline = pts.map(([x, y]) => [side === 'right' ? (x - 1.3) * k : (1.3 - x) * k + 2700, (1.5 - y) * k] as [number, number])
+        const xs = outline.map((q) => q[0])
+        const ys = outline.map((q) => q[1])
+        const bbox = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }
+        pieces.push({ id: pieces.length, role, side, outline, bbox, area: bbox.w * bbox.h })
+      }
+  // Built-in pieces already sit at their world spot: use an exact transform.
+  return { bikeId: cfg.bikeId, fileName: 'built-in', viewBox: [-2600, 0, 5300, 1300], pieces, updatedAt: '' }
 }
 
 // Public copy of a template: outlines only, never the original SVG.

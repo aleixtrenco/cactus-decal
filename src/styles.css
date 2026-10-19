@@ -2397,3 +2397,258 @@ p {
   color: #0b0c09;
   font-weight: 700;
 }
+
+/* Blank start */
+.blank-pick {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  margin-top: 24px;
+  padding: 16px;
+  border-style: dashed;
+}
+.blank-pick .blank-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--r-md);
+  background: #f4f4f2;
+  color: #101010;
+}
+.blank-pick small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* Home: blank start card */
+.blank-card .thumb {
+  place-items: center;
+  padding: 12px;
+}
+.blank-plus {
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border: 2px dashed var(--line-strong);
+  border-radius: 50%;
+  color: var(--cactus);
+  transition: transform 0.3s var(--ease-out), border-color 0.3s;
+}
+.blank-card:hover .blank-plus {
+  transform: rotate(90deg);
+  border-color: var(--cactus);
+}
+
+/* Home: pricing plans */
+.plans {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.plan {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 20px 20px 24px;
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.plan.featured {
+  border-color: var(--cactus);
+}
+.plan-thumb canvas {
+  width: 100%;
+  height: auto;
+}
+.plan h3 {
+  margin-top: 14px;
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 800;
+  font-size: 30px;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.plan p {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 15px;
+  flex: 1;
+}
+.plan-price {
+  margin: 18px 0 16px;
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 800;
+  font-size: 44px;
+  line-height: 1;
+  color: var(--sand);
+}
+.plan .btn {
+  align-self: flex-start;
+}
+@media (max-width: 900px) {
+  .plans {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Template designer + 3D inset ---------- */
+.viewer-design,
+.viewer-canvas {
+  position: absolute;
+  inset: 0;
+  transition:
+    inset 0.45s var(--ease-out),
+    width 0.45s var(--ease-out),
+    height 0.45s var(--ease-out),
+    border-radius 0.45s var(--ease-out);
+}
+/* Whichever view is not the main one sits small in the bottom-right corner. */
+.viewer[data-main='design'] .viewer-canvas,
+.viewer[data-main='3d'] .viewer-design {
+  inset: auto 16px 16px auto;
+  width: clamp(150px, 28%, 340px);
+  height: clamp(110px, 24%, 240px);
+  z-index: 3;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: rgba(11, 12, 9, 0.85);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+.inset-swap {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.designer {
+  position: absolute;
+  inset: 0;
+}
+.designer canvas {
+  display: block;
+  touch-action: none;
+}
+.designer.passive canvas {
+  pointer-events: none;
+}
+.designer-sel {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.designer-sel polygon {
+  fill: none;
+  stroke: var(--cactus);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  animation: march 0.8s linear infinite;
+}
+@keyframes march {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+.designer-bar {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  right: calc(clamp(150px, 28%, 340px) + 32px);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.designer-bar small {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(11, 12, 9, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.seg button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.seg button[aria-pressed='true'] {
+  background: var(--text);
+  color: var(--ink);
+}
+@media (prefers-reduced-motion: reduce) {
+  .designer-sel polygon {
+    animation: none;
+  }
+}
+@media (max-width: 960px) {
+  .viewer[data-main='design'] .viewer-canvas,
+  .viewer[data-main='3d'] .viewer-design {
+    inset: auto 10px 10px auto;
+    width: 34%;
+    height: 34%;
+    min-width: 120px;
+    min-height: 90px;
+  }
+  .designer-bar {
+    left: 10px;
+    bottom: 10px;
+    right: calc(34% + 20px);
+  }
+  .designer-bar small {
+    display: none;
+  }
+  .inset-swap {
+    left: 6px;
+    bottom: 6px;
+    min-height: 28px;
+    padding: 0 10px;
+    font-size: 11px;
+  }
+}
+/* The corner view now sits where the hint was. */
+.viewer[data-main] .viewer-hint {
+  display: none;
+}
+.viewer[data-main='design'] .viewer-canvas .stage-fallback {
+  padding: 6px;
+}
+.viewer[data-main='design'] .viewer-canvas .stage-fallback p {
+  display: none;
+}

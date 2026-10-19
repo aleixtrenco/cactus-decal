@@ -244,6 +244,10 @@ const PATTERNS: Record<string, Painter> = {
       }
     }
   },
+  blank(ctx, c) {
+    ctx.fillStyle = c.base
+    ctx.fillRect(x0, y0, WW, WH)
+  },
   clean(ctx, c) {
     ctx.fillStyle = c.base
     ctx.fillRect(x0, y0, WW, WH)
@@ -468,6 +472,25 @@ export function layerFrame(l: Layer, panels: PanelSet) {
   const w = b.x1 - b.x0
   const h = b.y1 - b.y0
   return { cx: b.x0 + l.x * w, cy: b.y0 + l.y * h, h: l.size * h, panel: { x: b.x0, y: b.y0, w, h } }
+}
+
+let measureCtx: CanvasRenderingContext2D | null = null
+
+// A layer's centre and size in world units, matching how it is drawn (used
+// for selection boxes and dragging in the designer).
+export function layerBox(l: Layer, panels: PanelSet) {
+  const f = layerFrame(l, panels)
+  let aspect = 1
+  if (l.kind === 'shape' && l.shape) aspect = SHAPES[l.shape].aspect
+  else if (l.kind === 'text') {
+    measureCtx ??= document.createElement('canvas').getContext('2d')!
+    measureCtx.font = fontById(l.font).css(100)
+    aspect = Math.max(0.3, measureCtx.measureText(l.text ?? '').width / 100)
+  } else if (l.kind === 'image') {
+    const img = l.src ? imageCache.get(l.src) : undefined
+    aspect = img?.naturalWidth ? img.naturalWidth / img.naturalHeight : 1
+  }
+  return { cx: f.cx, cy: f.cy, w: f.h * aspect, h: f.h, panel: f.panel }
 }
 
 function drawCover(ctx: CanvasRenderingContext2D, l: Layer, W: number, H: number) {

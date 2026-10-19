@@ -83,6 +83,7 @@ export const usesNeon = (c: KitConfig) =>
   [...Object.values(c.colors), c.rider.numberColor, c.rider.plateColor, c.rider.nameColor, ...c.layers.map((l) => l.fill)].flatMap(paintColors).some((h) => NEON_HEXES.has(h))
 
 export const priceInput = (c: KitConfig): PriceInput => ({
+  kit: c.kit,
   bikeType: bikeById(c.bikeId).type,
   finish: c.finish,
   material: c.material,
@@ -90,12 +91,17 @@ export const priceInput = (c: KitConfig): PriceInput => ({
   usesNeon: usesNeon(c),
 })
 
+export const platesOnly = (c: { kit?: KitId }) => c.kit === 'plates'
+
 export const STEPS = ['Bike', 'Design', 'Colours', 'Graphics', 'Rider', 'Logos', 'Extras', 'Review'] as const
 export type Step = (typeof STEPS)[number]
 
 interface Store {
   config: KitConfig
   step: number
+  // The layer being edited (shared by the Graphics panel and the designer).
+  selected: string | null
+  select: (id: string | null) => void
   set: (patch: Partial<KitConfig>) => void
   setRider: (patch: Partial<KitConfig['rider']>) => void
   setColor: (slot: keyof Palette, hex: string) => void
@@ -115,10 +121,16 @@ interface Store {
 export const useConfig = create<Store>((set) => ({
   config: defaultConfig(),
   step: 0,
+  selected: null,
+  select: (id) => set({ selected: id }),
   set: (patch) => set((s) => ({ config: { ...s.config, ...patch } })),
   setRider: (patch) => set((s) => ({ config: { ...s.config, rider: { ...s.config.rider, ...patch } } })),
   setColor: (slot, hex) => set((s) => ({ config: { ...s.config, colors: { ...s.config.colors, [slot]: hex } } })),
-  chooseDesign: (id) => set((s) => ({ config: { ...s.config, designId: id, colors: { ...designById(id).palette } } })),
+  chooseDesign: (id) =>
+    set((s) => ({
+      // A blank start also drops the make lettering, so the kit is truly empty.
+      config: { ...s.config, designId: id, colors: { ...designById(id).palette }, makeLettering: id === 'blank' ? false : s.config.designId === 'blank' ? true : s.config.makeLettering },
+    })),
   toggleExtra: (id) =>
     set((s) => {
       const has = s.config.extras.includes(id)

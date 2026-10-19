@@ -1,5 +1,5 @@
 import { parsePaint } from '../lib/paint.js'
-export type DesignId = 'dune' | 'saguaro' | 'shamal' | 'falcon' | 'hex' | 'mirage' | 'camo' | 'clean'
+export type DesignId = 'dune' | 'saguaro' | 'shamal' | 'falcon' | 'hex' | 'mirage' | 'camo' | 'clean' | 'blank'
 
 export interface Palette {
   base: string
@@ -16,6 +16,7 @@ export interface Design {
 }
 
 export const DESIGNS: Design[] = [
+  { id: 'blank', name: 'Blank', blurb: 'An empty kit: build it yourself with shapes, text and photos', palette: { base: '#f4f4f2', primary: '#101010', secondary: '#8a8f96', accent: '#5fae2e' } },
   { id: 'dune', name: 'Dune Line', blurb: 'Layered sand ridges that flow nose to tail', palette: { base: '#101010', primary: '#e9c88f', secondary: '#c2783a', accent: '#5fae2e' } },
   { id: 'shamal', name: 'Shamal', blurb: 'Wind-cut slashes built for speed', palette: { base: '#f4f4f2', primary: '#101010', secondary: '#ff6a13', accent: '#ffd200' } },
   { id: 'saguaro', name: 'Saguaro', blurb: 'Cactus ribs and spines, our signature', palette: { base: '#0f1a0c', primary: '#5fae2e', secondary: '#f4f4f2', accent: '#ffd200' } },
@@ -26,7 +27,9 @@ export const DESIGNS: Design[] = [
   { id: 'clean', name: 'Factory Clean', blurb: 'Minimal stripe, maximum class', palette: { base: '#f4f4f2', primary: '#101010', secondary: '#8a8f96', accent: '#5fae2e' } },
 ]
 
-export const designById = (id: DesignId) => DESIGNS.find((d) => d.id === id) ?? DESIGNS[0]
+export const designById = (id: DesignId) => DESIGNS.find((d) => d.id === id) ?? DESIGNS[1]
+// Ready-made designs (everything except the blank start).
+export const PRESETS = DESIGNS.filter((d) => d.id !== 'blank')
 
 export interface Swatch {
   name: string

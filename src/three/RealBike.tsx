@@ -16,9 +16,9 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
 import { ensureAssets, paintDecalSheet, paintFrontPlate, sheetWidth, WORLD } from '../lib/graphics'
-import { modelUrl, panelSet, resolveModel, sideOutlines, type BikeTemplate, type ModelSetup } from '../lib/templates'
+import { modelUrl, panelSet, resolveModel, sideOutlines, type BikeTemplate, type ModelSetup, type Role } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
-import { plasticsHex, type KitConfig } from '../store/config'
+import { plasticsHex, platesOnly, type KitConfig } from '../store/config'
 
 // Overall bike length the model is fitted to (rear fender tip to front tyre).
 const FIT = { x0: -1.2, x1: 1.17 }
@@ -275,8 +275,9 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
   useEffect(() => {
     let alive = true
     const paint = () => {
-      paintDecalSheet(P.sheets.right, cfg, 'right', sideOutlines(template, 'right'), panels)
-      paintDecalSheet(P.sheets.left, cfg, 'left', sideOutlines(template, 'left'), panels)
+      const roles = platesOnly(cfg) ? (['sidePlate'] as Role[]) : undefined
+      paintDecalSheet(P.sheets.right, cfg, 'right', sideOutlines(template, 'right', roles), panels)
+      paintDecalSheet(P.sheets.left, cfg, 'left', sideOutlines(template, 'left', roles), panels)
       paintFrontPlate(P.sheets.plate, cfg)
       for (const t of P.textures) t.needsUpdate = true
     }

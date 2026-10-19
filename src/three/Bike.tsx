@@ -11,7 +11,7 @@ import type { FinishId } from '../data/pricing'
 import { ensureAssets, paintFrontPlate, paintSheet, sheetWidth, uvFor, type Side } from '../lib/graphics'
 import { FRONT_WHEEL, REAR_WHEEL, frontPlate, tracePath, type Seg } from '../lib/shapes'
 import { panelSet, useTemplates, type PanelSet } from '../lib/templates'
-import { plasticsHex, type KitConfig } from '../store/config'
+import { plasticsHex, platesOnly, type KitConfig } from '../store/config'
 
 function panelGeometry(segs: Seg[], depth: number, uv: (x: number, y: number) => [number, number]) {
   const shape = new THREE.Shape()
@@ -153,8 +153,9 @@ export default function Bike({ cfg }: { cfg: KitConfig }) {
   const panels = useMemo(() => panelSet(template, make.shroudLift, make.tailRise), [template, make.shroudLift, make.tailRise])
   const kit = useKitMaterials(cfg, panels)
   // Every kit covers all panels, fork guards included.
-  const fullKit = true
-  const halfOrMore = true
+  // A plates-only kit leaves the shrouds and fenders in plain plastic.
+  const fullKit = !platesOnly(cfg)
+  const halfOrMore = fullKit
 
   const geo = useMemo(() => {
     const D = 0.018

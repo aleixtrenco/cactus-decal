@@ -33,7 +33,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const bike = bikeById(clip(c.bikeId, 40))
   const design = designById(c.designId)
-  const lines = priceLines({ bikeType: bike.type, finish, material, extras, usesNeon })
+  const kit = c.kit === 'plates' ? 'plates' : 'full'
+  const lines = priceLines({ kit, bikeType: bike.type, finish, material, extras, usesNeon })
 
   const origin = req.headers.origin ?? `https://${req.headers.host}`
   const stripe = new Stripe(key)
@@ -59,6 +60,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       shipping_address_collection: { allowed_countries: ['AE', 'SA', 'OM', 'QA', 'BH', 'KW'] },
       // Everything the print team needs. Stripe metadata values max 500 chars.
       metadata: {
+        kit: kit === 'plates' ? 'Number plates only (front + sides)' : 'Full kit',
         bike: `${bike.make} ${bike.model} (${bike.years})`,
         design: design.name,
         colours: JSON.stringify(c.colors ?? {}).slice(0, 500),

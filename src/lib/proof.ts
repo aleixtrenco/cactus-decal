@@ -3,7 +3,7 @@
 // for the design thumbnails on the home page.
 
 import type { KitConfig } from '../store/config'
-import { plasticsHex } from '../store/config'
+import { plasticsHex, platesOnly } from '../store/config'
 import { paintSheet, WORLD, type Side } from './graphics'
 import { FRONT_WHEEL, REAR_WHEEL, tracePath, type Seg } from './shapes'
 import { panelsFor } from './templates'
@@ -91,7 +91,11 @@ export function drawProof(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side,
   ctx.closePath()
   ctx.fill()
 
-  const panels: [Seg[], boolean][] = [...panelsSet.rearFender, ...panelsSet.frontFender, ...panelsSet.shroud, ...panelsSet.sidePlate].map((s) => [s, true])
+  const full = !platesOnly(cfg)
+  const panels: [Seg[], boolean][] = [
+    ...[...panelsSet.rearFender, ...panelsSet.frontFender, ...panelsSet.shroud].map((s): [Seg[], boolean] => [s, full]),
+    ...panelsSet.sidePlate.map((s): [Seg[], boolean] => [s, true]),
+  ]
   for (const [segs, printed] of panels) {
     ctx.save()
     world()

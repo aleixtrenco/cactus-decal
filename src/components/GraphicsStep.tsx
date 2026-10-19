@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { FONTS, FONT_IDS, type FontId } from '../data/fonts'
-import { ensureAssets, layerFrame, loadImage, WORLD } from '../lib/graphics'
-import { drawProof } from '../lib/proof'
+import { loadImage } from '../lib/graphics'
 import { SHAPES, SHAPE_IDS } from '../lib/shapes2d'
-import { panelsFor, useTemplates } from '../lib/templates'
-import { useConfig, type Layer, type LayerPanel, type ShapeId } from '../store/config'
+import { platesOnly, useConfig, type Layer, type LayerPanel, type ShapeId } from '../store/config'
 import ColorField from './ColorField'
 import Icon from './Icon'
 
@@ -57,96 +55,17 @@ function ShapeIcon({ id }: { id: ShapeId }) {
 
 // The flat template view: the design on the right side of the bike, where
 // layers can be picked and dragged.
-function TemplateView({ selected, onSelect }: { selected: string | null; onSelect: (id: string | null) => void }) {
-  const { config, updateLayer } = useConfig()
-  const template = useTemplates((s) => s.templates[config.bikeId])
-  const ref = useRef<HTMLCanvasElement>(null)
-  const drag = useRef<{ id: string; dx: number; dy: number } | null>(null)
-  const W = 900
-  const H = Math.round(W * 0.56)
-  const scale = W / (WORLD.x1 - WORLD.x0)
-  const top = H / scale - 0.02
-  const toPx = (x: number, y: number) => [(x - WORLD.x0) * scale, (top - y) * scale]
-  const toWorld = (px: number, py: number) => [px / scale + WORLD.x0, top - py / scale]
-
-  useEffect(() => {
-    let alive = true
-    const draw = () => ref.current && drawProof(ref.current, config, 'right')
-    draw()
-    ensureAssets(config).then(() => alive && draw())
-    return () => {
-      alive = false
-    }
-  }, [config, template])
-
-  const panels = panelsFor(config)
-  const frames = config.layers.map((l) => {
-    const f = layerFrame(l, panels)
-    const aspect = l.kind === 'shape' && l.shape ? SHAPES[l.shape].aspect : l.kind === 'text' ? Math.max(1, (l.text?.length ?? 1) * 0.6) : 1.4
-    const [cx, cy] = toPx(f.cx, f.cy)
-    return { l, f, cx, cy, w: f.h * aspect * scale, h: f.h * scale }
-  })
-  const sel = frames.find((x) => x.l.id === selected)
-
-  const eventPx = (e: RPointerEvent) => {
-    const r = ref.current!.getBoundingClientRect()
-    return [((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H]
-  }
-  const down = (e: RPointerEvent) => {
-    const [px, py] = eventPx(e)
-    const hit = [...frames].reverse().find((x) => !x.l.cover && Math.abs(px - x.cx) < Math.max(14, x.w / 2) && Math.abs(py - x.cy) < Math.max(14, x.h / 2))
-    onSelect(hit?.l.id ?? null)
-    if (!hit) return
-    drag.current = { id: hit.l.id, dx: px - hit.cx, dy: py - hit.cy }
-    ;(e.target as Element).setPointerCapture(e.pointerId)
-  }
-  const move = (e: RPointerEvent) => {
-    const d = drag.current
-    if (!d) return
-    const fr = frames.find((x) => x.l.id === d.id)
-    if (!fr) return
-    const [px, py] = eventPx(e)
-    const [wx, wy] = toWorld(px - d.dx, py - d.dy)
-    const p = fr.f.panel
-    updateLayer(d.id, { x: +((wx - p.x) / p.w).toFixed(3), y: +((wy - p.y) / p.h).toFixed(3) })
-  }
-
-  return (
-    <div className="template-view">
-      <canvas
-        ref={ref}
-        width={W}
-        height={H}
-        role="img"
-        aria-label="Your design on the right side of the bike. Drag a shape, text or image to move it."
-        onPointerDown={down}
-        onPointerMove={move}
-        onPointerUp={() => (drag.current = null)}
-      />
-      {sel && !sel.l.cover && (
-        <svg viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
-          <rect
-            x={sel.cx - sel.w / 2 - 6}
-            y={sel.cy - sel.h / 2 - 6}
-            width={sel.w + 12}
-            height={sel.h + 12}
-            transform={`rotate(${-sel.l.rotation} ${sel.cx} ${sel.cy})`}
-            className="sel-box"
-          />
-        </svg>
-      )}
-      <small>Right side shown · drag to move · the left side mirrors it</small>
-    </div>
-  )
-}
-
 export default function GraphicsStep() {
   const { config, addLayer, updateLayer, removeLayer, moveLayer } = useConfig()
-  const [selected, setSelected] = useState<string | null>(config.layers.at(-1)?.id ?? null)
+  const selected = useConfig((s) => s.selected)
+  const setSelected = useConfig((s) => s.select)
   const [picking, setPicking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const file = useRef<HTMLInputElement>(null)
   const layer = config.layers.find((l) => l.id === selected)
+  // Plates-only orders print just the plates, so new layers start there.
+  const plates = platesOnly(config)
+  const home: LayerPanel = plates ? 'sidePlate' : 'shroud'
 
   const add = (l: Omit<Layer, 'id'>) => {
     const id = newId()
@@ -155,9 +74,9 @@ export default function GraphicsStep() {
     setPicking(false)
   }
   const addShape = (shape: ShapeId) =>
-    add({ kind: 'shape', shape, panel: 'shroud', x: 0.5, y: 0.5, size: shape === 'stripe' || shape === 'twin' ? 0.12 : 0.35, rotation: 0, opacity: 1, fill: config.colors.accent })
+    add({ kind: 'shape', shape, panel: home, x: 0.5, y: 0.5, size: shape === 'stripe' || shape === 'twin' ? 0.12 : 0.35, rotation: 0, opacity: 1, fill: config.colors.accent })
   const addText = () =>
-    add({ kind: 'text', text: 'SEND IT', font: 'racing', panel: 'shroud', x: 0.5, y: 0.55, size: 0.16, rotation: 0, opacity: 1, fill: '#f4f4f2', outline: '#101010' })
+    add({ kind: 'text', text: plates ? 'RACING' : 'SEND IT', font: 'racing', panel: home, x: 0.5, y: plates ? 0.85 : 0.55, size: plates ? 0.12 : 0.16, rotation: 0, opacity: 1, fill: '#f4f4f2', outline: '#101010' })
   const onFile = async (f: File | undefined) => {
     setError(null)
     if (!f) return
@@ -189,10 +108,7 @@ export default function GraphicsStep() {
   return (
     <>
       <h2>Graphics</h2>
-      <p className="lead">Add shapes, text or your own photo. Drag them on the template; the 3D bike updates as you go.</p>
-      <div className="group">
-        <TemplateView selected={selected} onSelect={setSelected} />
-      </div>
+      <p className="lead">Add shapes, text or your own photo, then drag them on the template. The 3D bike updates as you go.</p>
       <div className="add-row">
         <button className="btn btn-ghost btn-sm" aria-expanded={picking} onClick={() => setPicking(!picking)}>
           <Icon name="plus" size={16} /> Shape
@@ -306,7 +222,7 @@ export default function GraphicsStep() {
                 Placed on
               </div>
               <div className="chips">
-                {PANELS.map(([p, l]) => (
+                {PANELS.filter(([p]) => !plates || p === 'sidePlate' || p === 'kit').map(([p, l]) => (
                   <button key={p} className="chip chip-sm" aria-pressed={layer.panel === p} onClick={() => upd({ panel: p, x: 0.5, y: 0.5 })}>
                     {l}
                   </button>

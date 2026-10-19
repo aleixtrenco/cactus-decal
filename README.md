@@ -13,7 +13,7 @@ Built with React, Vite, three.js (react-three-fiber) and Framer Motion. Server f
 
 | What | Where |
 |---|---|
-| Kit prices (AED 900 motocross, AED 1,300 trail) and the placeholder finish/extra prices | `src/data/pricing.ts` |
+| Kit prices (AED 900 motocross, AED 1,300 trail, AED 400 number plates only) and the placeholder finish/extra prices | `src/data/pricing.ts` |
 | Contact details, FAQ answers | `src/data/site.ts` |
 | Bike models and fitment years | `src/data/bikes.ts` |
 | Designs and colour swatches | `src/data/designs.ts` |

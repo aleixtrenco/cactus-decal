@@ -5,8 +5,8 @@ import { CactusSpines, Contours, Footer, Header } from '../components/Chrome'
 import Icon, { type IconName } from '../components/Icon'
 import { designPreview, LazyStage, ProofCanvas, Reveal } from '../components/bits'
 import { MAKES } from '../data/bikes'
-import { DESIGNS } from '../data/designs'
-import { FINISHES, formatAED, KIT_PRICES, type FinishId } from '../data/pricing'
+import { DESIGNS, PRESETS } from '../data/designs'
+import { FINISHES, formatAED, KIT_PARTS, KIT_PRICES, PLATES_KIT, PLATES_PARTS, type FinishId } from '../data/pricing'
 import { FAQ } from '../data/site'
 
 const HERO_BIKE = 'husq-tcfc-16'
@@ -142,6 +142,12 @@ const FEATURES: [IconName, string, string][] = [
   ['tag', 'Instant AED pricing', 'The price updates with every option. No surprises.'],
 ]
 
+const PLANS = [
+  { title: 'Motocross kit', body: KIT_PARTS, price: KIT_PRICES.MX.price, to: '/configurator?kit=full', cta: 'Design a kit', cfg: designPreview('dune'), featured: true },
+  { title: 'Trail bike kit', body: KIT_PARTS, price: KIT_PRICES.Trail.price, to: '/configurator?kit=full', cta: 'Design a kit', cfg: designPreview('shamal') },
+  { title: 'Number plates only', body: `${PLATES_PARTS}.`, price: PLATES_KIT.price, to: '/configurator?kit=plates', cta: 'Design plates', cfg: { ...designPreview('saguaro'), kit: 'plates' as const } },
+]
+
 export default function Home() {
   const promoCfg = useMemo(() => ({ ...designPreview('saguaro'), bikeId: HERO_BIKE }), [])
   return (
@@ -204,8 +210,26 @@ export default function Home() {
               </Reveal>
             </div>
             <div className="designs">
-              {DESIGNS.map((d, i) => (
-                <Reveal key={d.id} delay={(i % 4) * 0.06}>
+              <Reveal>
+                <AppLink to="/configurator?design=blank" className="design-card blank-card">
+                  <div className="thumb">
+                    <span className="blank-plus" aria-hidden="true">
+                      <Icon name="plus" size={40} />
+                    </span>
+                  </div>
+                  <div className="meta">
+                    <div>
+                      <h3>Start blank</h3>
+                      <p>An empty kit. Build it yourself with shapes, text and your own photos.</p>
+                    </div>
+                    <span className="go" aria-hidden="true">
+                      <Icon name="arrow" size={18} />
+                    </span>
+                  </div>
+                </AppLink>
+              </Reveal>
+              {PRESETS.map((d, i) => (
+                <Reveal key={d.id} delay={((i + 1) % 4) * 0.06}>
                   <AppLink to={`/configurator?design=${d.id}`} className="design-card">
                     <div className="thumb">
                       <ProofCanvas cfg={designPreview(d.id)} width={560} label={`${d.name} design preview`} />
@@ -220,6 +244,41 @@ export default function Home() {
                       </span>
                     </div>
                   </AppLink>
+                </Reveal>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="pricing" className="section" style={{ paddingTop: 0 }}>
+          <div className="container">
+            <div className="section-head">
+              <Reveal>
+                <span className="eyebrow">Pricing</span>
+                <h2 className="display">
+                  Full kit
+                  <br />
+                  or just plates
+                </h2>
+              </Reveal>
+              <Reveal delay={0.1}>
+                <p>Everything is fully custom and cut to your model’s template. Finishes and extras are added in the configurator.</p>
+              </Reveal>
+            </div>
+            <div className="plans">
+              {PLANS.map((plan, i) => (
+                <Reveal key={plan.title} delay={i * 0.07}>
+                  <div className={`plan${plan.featured ? ' featured' : ''}`}>
+                    <div className="plan-thumb">
+                      <ProofCanvas cfg={plan.cfg} width={560} label={`${plan.title} preview`} />
+                    </div>
+                    <h3>{plan.title}</h3>
+                    <p>{plan.body}</p>
+                    <div className="plan-price">{formatAED(plan.price)}</div>
+                    <AppLink to={plan.to} className={`btn ${plan.featured ? 'btn-primary' : 'btn-ghost'}`}>
+                      {plan.cta} <Icon name="arrow" size={18} />
+                    </AppLink>
+                  </div>
                 </Reveal>
               ))}
             </div>
