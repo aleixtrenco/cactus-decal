@@ -30,6 +30,14 @@ Upload each model's normal cut file in `/admin` → Bike templates. The layout i
 
 Outline copies for four models are already included in `public/templates/` (Honda CRF250R/RX · CRF450R/RX 2025, Husqvarna TC/FC/FS 2016–2022, GasGas MC 85 2021–2024, Kawasaki KX250 2025 / KX450 2024–2025). Upload the original SVGs for these in `/admin` too, so print files use the exact cut lines.
 
+## 3D bike models
+
+Each bike can show a real 3D model instead of the built-in bike. Upload a `.glb` in `/admin` → the bike → **3D model**, then press **Auto-place on model** and fine-tune by dragging.
+
+- Any model works, with no special UVs needed. If it has a material named like `livery` or `plastic`, only that material gets the graphics, and its original artwork is replaced by the chosen plastics colour.
+- Other formats: `.usdz` → `tools/usd2glb.py` (needs `pip install usd-core numpy pillow`), then `npx gltfpack -i in.glb -o out.glb -cc` to compress. FBX/OBJ: export as glTF Binary from Blender.
+- Bundled: `public/models/husq-tcfc-16.glb` (2022 Husqvarna FS 450, converted from the supplied USDZ). Check the source licence allows commercial use before launch.
+
 ## Print files
 
 `/admin` → Orders → **Print file** downloads an SVG on your template's own artboard, which opens directly in Adobe Illustrator (save it as .ai from there):

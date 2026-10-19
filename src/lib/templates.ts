@@ -63,6 +63,9 @@ export interface ModelSetup {
   plate: { y: number; w: number; h: number }
 }
 
+// Site-relative model paths (bundled models) also work from a sub-folder.
+export const modelUrl = (u: string) => (u.startsWith('/') && !u.startsWith('//') ? import.meta.env.BASE_URL + u.slice(1) : u)
+
 export const defaultModelSetup = (url: string): ModelSetup => ({ url, yaw: 0, scale: 1, dx: 0, dy: 0, plate: { y: 1.02, w: 0.3, h: 0.27 } })
 
 export interface BikeTemplate {

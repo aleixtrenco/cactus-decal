@@ -16,9 +16,9 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
 import { ensureAssets, paintDecalSheet, paintFrontPlate, sheetWidth, WORLD } from '../lib/graphics'
-import { panelSet, sideOutlines, type BikeTemplate, type ModelSetup } from '../lib/templates'
+import { modelUrl, panelSet, sideOutlines, type BikeTemplate, type ModelSetup } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
-import type { KitConfig } from '../store/config'
+import { plasticsHex, type KitConfig } from '../store/config'
 
 // Overall bike length the model is fitted to (rear fender tip to front tyre).
 const FIT = { x0: -1.2, x1: 1.17 }
@@ -27,6 +27,8 @@ const NEAR = 0.01
 const FAR = 6
 // Parts that never carry graphics, matched on mesh or material names.
 const NO_DECAL = /tyre|tire|wheel|rim|spoke|hub|chain|sprocket|exhaust|pipe|muffler|silencer|engine|cylinder|brake|disc|rotor|caliper|frame|chassis|swing|shock|spring|fork(?!.?guard)|handle|bar|grip|lever|chrome|metal|bolt|screw|seat/i
+
+const LIVERY = /livery|plastic|decal|graphic|sticker|bodywork|fairing/i
 
 const FINISH: Record<FinishId, { rough: number; metal: number; clear: number }> = {
   gloss: { rough: 0.22, metal: 0, clear: 1 },
@@ -58,6 +60,22 @@ export function fitModel(root: THREE.Object3D, setup: ModelSetup) {
   const c = box.getCenter(new THREE.Vector3())
   root.position.set((FIT.x0 + FIT.x1) / 2 - c.x + setup.dx, -box.min.y + setup.dy, -c.z)
   root.updateMatrixWorld(true)
+}
+
+const hasLiveryMaterial = (root: THREE.Object3D) => {
+  let found = false
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh
+    if (mesh.isMesh) for (const m of [mesh.material].flat()) if (LIVERY.test(m.name)) found = true
+  })
+  return found
+}
+
+// If the model has a dedicated graphics material (often called "livery"),
+// only that gets the kit; otherwise everything not ruled out by name.
+export function isDecalSurface(root: THREE.Object3D) {
+  const livery = hasLiveryMaterial(root)
+  return (mesh: THREE.Mesh, mat: THREE.Material) => (livery ? LIVERY.test(mat.name) : !NO_DECAL.test(mesh.name) && !NO_DECAL.test(mat.name))
 }
 
 function depthTarget(w: number, h: number) {
@@ -122,15 +140,18 @@ function makeProjector(): Projector {
       uPlateRect: { value: new THREE.Vector3(1.02, 0.3, 0.27) },
       uFinish: { value: new THREE.Vector3(0.22, 0, 1) },
       uOn: { value: 0 },
+      uPlastic: { value: new THREE.Color('#141414') },
     },
   }
 }
 
 // Adds the projection to a standard/physical material.
-function patchMaterial(m: THREE.Material, P: Projector) {
+function patchMaterial(m: THREE.Material, P: Projector, livery: boolean) {
   if (!(m instanceof THREE.MeshStandardMaterial)) return
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, P.uniforms)
+    // A livery material's own printed graphics are replaced by bare plastic.
+    shader.defines = { ...shader.defines, CDL_LIVERY: livery ? 1 : 0 }
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vDecalPos;\nvarying vec3 vDecalNormal;')
       .replace(
@@ -147,6 +168,7 @@ uniform sampler2D uSheetR, uSheetL, uPlate, uDepthR, uDepthL, uDepthF;
 uniform vec4 uWorld;
 uniform vec3 uCam, uPlateRect, uFinish;
 uniform float uOn;
+uniform vec3 uPlastic;
 float decalA = 0.0;
 // Distance from an ortho camera to the first surface it sees.
 float camDist(sampler2D d, vec2 uv) { return uCam.y + texture2D(d, uv).x * (uCam.z - uCam.y); }`,
@@ -154,6 +176,9 @@ float camDist(sampler2D d, vec2 uv) { return uCam.y + texture2D(d, uv).x * (uCam
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
+#if CDL_LIVERY == 1
+if (uOn > 0.5) diffuseColor.rgb = uPlastic;
+#endif
 if (uOn > 0.5) {
   float ww = uWorld.y - uWorld.x;
   float wh = uWorld.w - uWorld.z;
@@ -180,7 +205,7 @@ if (uOn > 0.5) {
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, uFinish.x, decalA);')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, uFinish.y, decalA);')
   }
-  m.customProgramCacheKey = () => 'cdl-decal'
+  m.customProgramCacheKey = () => `cdl-decal-${livery ? 1 : 0}`
   m.needsUpdate = true
 }
 
@@ -194,7 +219,7 @@ function loadModel(url: string) {
 }
 
 export default function RealBike({ cfg, template }: { cfg: KitConfig; template: BikeTemplate & { model: ModelSetup } }) {
-  const gltf = loadModel(template.model.url)
+  const gltf = loadModel(modelUrl(template.model.url))
   const gl = useThree((s) => s.gl)
   const P = useMemo(makeProjector, [])
 
@@ -202,6 +227,8 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
   const root = useMemo(() => {
     const r = new THREE.Group()
     const copy = gltf.scene.clone(true)
+    const decalOn = isDecalSurface(copy)
+    const hasLivery = hasLiveryMaterial(copy)
     copy.traverse((o) => {
       const mesh = o as THREE.Mesh
       if (!mesh.isMesh) return
@@ -210,7 +237,7 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
       const next = mats.map((mat) => {
         const c = mat.clone()
-        if (!NO_DECAL.test(mesh.name) && !NO_DECAL.test(mat.name)) patchMaterial(c, P)
+        if (decalOn(mesh, mat)) patchMaterial(c, P, hasLivery)
         return c
       })
       mesh.material = Array.isArray(mesh.material) ? next : next[0]
@@ -259,6 +286,10 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
       alive = false
     }
   }, [cfg, template, panels, P])
+
+  useEffect(() => {
+    P.uniforms.uPlastic.value.set(plasticsHex(cfg))
+  }, [cfg, P])
 
   useEffect(() => {
     const f = FINISH[cfg.finish]

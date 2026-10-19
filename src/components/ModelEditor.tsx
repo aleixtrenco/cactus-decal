@@ -4,7 +4,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { WORLD } from '../lib/graphics'
-import { ROLE_LABELS, apply, defaultModelSetup, mul6, pieceToWorld, type BikeTemplate, type M6, type ModelSetup, type TemplatePiece } from '../lib/templates'
+import { ROLE_LABELS, apply, defaultModelSetup, modelUrl, mul6, pieceToWorld, type BikeTemplate, type M6, type ModelSetup, type TemplatePiece } from '../lib/templates'
 import { fitModel } from '../three/RealBike'
 import Icon from './Icon'
 
@@ -20,7 +20,7 @@ async function snapshot(setup: ModelSetup): Promise<string> {
   draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/libs/draco/gltf/')
   loader.setDRACOLoader(draco)
   loader.setMeshoptDecoder(MeshoptDecoder)
-  const gltf = await loader.loadAsync(setup.url)
+  const gltf = await loader.loadAsync(modelUrl(setup.url))
   const root = gltf.scene
   fitModel(root, setup)
   const scene = new THREE.Scene()
@@ -193,6 +193,26 @@ export default function ModelEditor({ template, onChange, pw, online }: { templa
           <div className="group-label" style={{ marginTop: 20 }}>
             Place the pieces <span>Right side; the left side mirrors it</span>
           </div>
+          <button
+            className="btn btn-primary btn-sm"
+            style={{ marginBottom: 10 }}
+            disabled={!!busy}
+            aria-busy={busy === 'Placing pieces…'}
+            onClick={async () => {
+              setBusy('Placing pieces…')
+              setError(null)
+              try {
+                const { autoPlace } = await import('../lib/autoPlace')
+                onChange(await autoPlace(template))
+              } catch {
+                setError('Auto-place could not read this model. Place the pieces by hand instead.')
+              } finally {
+                setBusy(null)
+              }
+            }}
+          >
+            <Icon name="sparkle" size={16} /> {busy === 'Placing pieces…' ? 'Placing pieces…' : 'Auto-place on model'}
+          </button>
           <button className="toggle" role="switch" aria-checked={trim} onClick={() => setTrim(!trim)} style={{ marginBottom: 10 }}>
             <span>Show trim pieces (shown on the 3D bike once placed)</span>
             <span className="track" aria-hidden="true" />
@@ -252,7 +272,7 @@ export default function ModelEditor({ template, onChange, pw, online }: { templa
               </button>
             </div>
           ) : (
-            <p className="lead">Drag each piece onto its plastic on the bike. Click a piece for size and rotation; arrow keys nudge it.</p>
+            <p className="lead">Start with Auto-place, then drag any piece that needs it. Click a piece for size and rotation; arrow keys nudge it.</p>
           )}
         </>
       )}
