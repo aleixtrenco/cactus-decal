@@ -66,14 +66,14 @@ export interface KitConfig {
 }
 
 export const defaultConfig = (): KitConfig => {
-  const d = designById('dune')
+  const d = designById('factory')
   return {
     // Start on a bike with a real 3D model.
     bikeId: 'husq-tcfc-16',
     designId: d.id,
     colors: { ...d.palette },
     plastics: 'black',
-    rider: { name: 'CACTUS', number: '27', font: 'italic', numberColor: '#101010', plateColor: '#e9c88f', nameColor: '#f4f4f2' },
+    rider: { name: 'CACTUS', number: '27', font: 'italic', numberColor: '#101010', plateColor: '#e9c88f', nameColor: '#f4f4f2', ...d.rider },
     makeLettering: true,
     logos: [],
     layers: [],
@@ -181,7 +181,8 @@ export const useConfig = create<Store>((set) => ({
           colors: { ...d.palette },
           partColors: {},
           makeLettering: fromBlank ? true : c.makeLettering,
-          rider: fromBlank ? { ...c.rider, name: c.rider.name || base.name, number: c.rider.number || base.number, plateColor: base.plateColor, nameColor: base.nameColor } : c.rider,
+          // Each design brings plates and lettering that suit it.
+          rider: { ...c.rider, ...(fromBlank ? { name: c.rider.name || base.name, number: c.rider.number || base.number } : {}), ...d.rider },
         },
       }
     }),

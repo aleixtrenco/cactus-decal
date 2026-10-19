@@ -106,7 +106,7 @@ export function ProofCanvas({ cfg, side = 'right', width = 640, label }: { cfg: 
 export function designPreview(id: DesignId): KitConfig {
   const d = designById(id)
   const c = defaultConfig()
-  return { ...c, designId: id, colors: { ...d.palette }, rider: { ...c.rider, plateColor: d.palette.primary === '#101010' ? '#f4f4f2' : d.palette.primary, numberColor: d.palette.base === '#f4f4f2' ? '#101010' : d.palette.base } }
+  return { ...c, designId: id, colors: { ...d.palette }, rider: { ...c.rider, ...d.rider } }
 }
 
 export function AnimatedNumber({ value, format }: { value: number; format: (n: number) => string }) {

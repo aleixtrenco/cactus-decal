@@ -167,7 +167,7 @@ function Templates({ pw, mode }: { pw: string; mode: Mode }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const [make, setMake] = useState<Make>('KTM')
   const [selected, setSelected] = useState(BIKES[0].id)
-  const [designId, setDesignId] = useState<DesignId>('shamal')
+  const [designId, setDesignId] = useState<DesignId>('factory')
   const [msg, setMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -285,7 +285,7 @@ function Templates({ pw, mode }: { pw: string; mode: Mode }) {
             <small>{draft ? `Draft from ${draft.template.fileName}, not published yet` : published[selected] ? `Published: ${published[selected].fileName}` : 'Using the built-in shape'}</small>
           </div>
           <select className="select" style={{ width: 'auto' }} value={designId} onChange={(e) => setDesignId(e.target.value as DesignId)} aria-label="Preview design">
-            {DESIGNS.map((d) => (
+            {DESIGNS.filter((d) => !d.hidden).map((d) => (
               <option key={d.id} value={d.id}>
                 Preview: {d.name}
               </option>

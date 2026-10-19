@@ -10,7 +10,7 @@ import { FINISHES, formatAED, KIT_PARTS, KIT_PRICES, PLATES_KIT, PLATES_PARTS, t
 import { FAQ } from '../data/site'
 
 const HERO_BIKE = 'husq-tcfc-16'
-const HERO_ROTATION = ['shamal', 'saguaro', 'falcon', 'dune', 'hex'] as const
+const HERO_ROTATION = ['factory', 'chrome', 'speedblock', 'retro', 'sugar'] as const
 
 function Hero() {
   const [i, setI] = useState(0)
@@ -158,13 +158,13 @@ const BUILDS = [
 ]
 
 const PLANS = [
-  { title: 'Motocross kit', body: KIT_PARTS, price: KIT_PRICES.MX.price, to: '/configurator?kit=full', cta: 'Design a kit', render: 'dune', featured: true },
-  { title: 'Trail bike kit', body: KIT_PARTS, price: KIT_PRICES.Trail.price, to: '/configurator?kit=full', cta: 'Design a kit', render: 'shamal' },
-  { title: 'Number plates only', body: `${PLATES_PARTS}.`, price: PLATES_KIT.price, to: '/configurator?kit=plates', cta: 'Design plates', render: 'saguaro-plates' },
+  { title: 'Motocross kit', body: KIT_PARTS, price: KIT_PRICES.MX.price, to: '/configurator?kit=full', cta: 'Design a kit', render: 'factory', featured: true },
+  { title: 'Trail bike kit', body: KIT_PARTS, price: KIT_PRICES.Trail.price, to: '/configurator?kit=full', cta: 'Design a kit', render: 'chrome' },
+  { title: 'Number plates only', body: `${PLATES_PARTS}.`, price: PLATES_KIT.price, to: '/configurator?kit=plates', cta: 'Design plates', render: 'speedblock-plates' },
 ]
 
 export default function Home() {
-  const promoCfg = useMemo(() => ({ ...designPreview('saguaro'), bikeId: HERO_BIKE }), [])
+  const promoCfg = useMemo(() => ({ ...designPreview('chrome'), bikeId: HERO_BIKE }), [])
   return (
     <>
       <a href="#main" className="skip-link">

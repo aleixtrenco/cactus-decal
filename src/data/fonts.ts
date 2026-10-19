@@ -13,7 +13,8 @@ import bungeeUrl from '@fontsource/bungee/files/bungee-latin-400-normal.woff?url
 import bebasUrl from '@fontsource/bebas-neue/files/bebas-neue-latin-400-normal.woff?url'
 import michromaUrl from '@fontsource/michroma/files/michroma-latin-400-normal.woff?url'
 
-export type FontId = 'block' | 'italic' | 'wide' | 'racing' | 'russo' | 'ops' | 'teko' | 'orbitron' | 'bungee' | 'bebas' | 'michroma'
+import type { FontId } from './fontIds'
+export type { FontId }
 
 export interface FontDef {
   label: string

@@ -51,7 +51,287 @@ type Painter = (ctx: CanvasRenderingContext2D, c: Record<keyof Palette, Fill>) =
 
 const { x0, x1, y0, y1 } = WORLD
 
+// Fills a polygon given as [x, y] world points.
+function shape(ctx: CanvasRenderingContext2D, fill: Fill, pts: [number, number][]) {
+  ctx.beginPath()
+  pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)))
+  ctx.closePath()
+  ctx.fillStyle = fill
+  ctx.fill()
+}
+
+// A straight band between two points, `w` thick, with square ends.
+function band(ctx: CanvasRenderingContext2D, fill: Fill, a: [number, number], b: [number, number], w: number) {
+  const dx = b[0] - a[0]
+  const dy = b[1] - a[1]
+  const l = Math.hypot(dx, dy) || 1
+  const nx = (-dy / l) * (w / 2)
+  const ny = (dx / l) * (w / 2)
+  shape(ctx, fill, [
+    [a[0] + nx, a[1] + ny],
+    [b[0] + nx, b[1] + ny],
+    [b[0] - nx, b[1] - ny],
+    [a[0] - nx, a[1] - ny],
+  ])
+}
+
+// A smooth curved band (quadratic), `w` thick, tapering at both ends.
+function swoosh(ctx: CanvasRenderingContext2D, fill: Fill, a: [number, number], c: [number, number], b: [number, number], w: number) {
+  const n = 40
+  const top: [number, number][] = []
+  const bot: [number, number][] = []
+  for (let i = 0; i <= n; i++) {
+    const t = i / n
+    const x = (1 - t) * (1 - t) * a[0] + 2 * (1 - t) * t * c[0] + t * t * b[0]
+    const y = (1 - t) * (1 - t) * a[1] + 2 * (1 - t) * t * c[1] + t * t * b[1]
+    const tx = 2 * (1 - t) * (c[0] - a[0]) + 2 * t * (b[0] - c[0])
+    const ty = 2 * (1 - t) * (c[1] - a[1]) + 2 * t * (b[1] - c[1])
+    const l = Math.hypot(tx, ty) || 1
+    const half = (w / 2) * Math.sin(Math.PI * Math.min(1, 0.15 + t * 0.85))
+    top.push([x - (ty / l) * half, y + (tx / l) * half])
+    bot.push([x + (ty / l) * half, y - (tx / l) * half])
+  }
+  shape(ctx, fill, [...top, ...bot.reverse()])
+}
+
 const PATTERNS: Record<string, Painter> = {
+  // Inspired by a black, white and purple factory-style race kit.
+  factory(ctx, c) {
+    ctx.fillStyle = c.base
+    ctx.fillRect(x0, y0, WW, WH)
+    // Purple wedge low on the shroud, running back under the seat.
+    shape(ctx, c.secondary, [
+      [-0.85, 0.66],
+      [0.1, 0.74],
+      [0.6, 0.94],
+      [0.62, 0.78],
+      [0.2, 0.66],
+      [-0.85, 0.56],
+    ])
+    // Big white arrow across the shroud, pointing forward.
+    shape(ctx, c.primary, [
+      [-0.26, 0.86],
+      [0.12, 1.24],
+      [0.58, 1.24],
+      [0.58, 1.1],
+      [0.3, 1.05],
+      [0.1, 0.86],
+    ])
+    // Black notch through the white.
+    band(ctx, c.base, [-0.02, 0.93], [0.4, 1.17], 0.028)
+    // Orange slashes.
+    band(ctx, c.accent, [0.08, 0.82], [0.58, 1.06], 0.045)
+    band(ctx, c.accent, [-0.85, 1.0], [-0.32, 1.05], 0.02)
+    // White blade over the rear fender.
+    shape(ctx, c.primary, [
+      [-0.9, 1.15],
+      [-0.3, 1.1],
+      [-0.36, 1.06],
+      [-0.9, 1.07],
+    ])
+    // Front fender: white arrow with a purple tip.
+    shape(ctx, c.primary, [
+      [0.45, 0.7],
+      [1.25, 0.66],
+      [1.25, 0.56],
+      [0.6, 0.62],
+    ])
+    shape(ctx, c.secondary, [
+      [0.95, 0.66],
+      [1.25, 0.66],
+      [1.25, 0.6],
+    ])
+  },
+  // Inspired by a waffle-cone and sprinkles custom kit.
+  sugar(ctx, c) {
+    ctx.fillStyle = c.base
+    ctx.fillRect(x0, y0, WW, WH)
+    const top = (x: number) => 0.86 + 0.05 * Math.sin(x * 2.1) - (x + 1.25) * 0.03
+    const cone: [number, number][] = [[x0, y0]]
+    for (let x = x0; x <= x1 + 0.001; x += 0.02) cone.push([x, top(x)])
+    cone.push([x1, y0])
+    ctx.save()
+    shape(ctx, c.primary, cone)
+    ctx.clip()
+    // Waffle grid: lighter squares with darker crossing ridges.
+    const g = 0.07
+    ctx.globalAlpha = 0.28
+    ctx.fillStyle = '#ffffff'
+    for (let i = -40; i < 40; i++)
+      for (let j = -10; j < 30; j++) {
+        const cx = i * g + (j % 2) * (g / 2)
+        const cy = y0 + j * (g / 2)
+        shape(ctx, '#ffffff', [
+          [cx, cy + g * 0.36],
+          [cx + g * 0.36, cy],
+          [cx, cy - g * 0.36],
+          [cx - g * 0.36, cy],
+        ])
+      }
+    ctx.globalAlpha = 1
+    ctx.strokeStyle = c.accent
+    ctx.lineWidth = 0.009
+    for (let k = -60; k < 60; k++) {
+      ctx.beginPath()
+      ctx.moveTo(x0 + k * g * 0.7071 * 1.414, y0)
+      ctx.lineTo(x0 + k * g * 0.7071 * 1.414 + 2, y0 + 2)
+      ctx.moveTo(x0 + k * g * 0.7071 * 1.414, y0)
+      ctx.lineTo(x0 + k * g * 0.7071 * 1.414 - 2, y0 + 2)
+      ctx.stroke()
+    }
+    ctx.restore()
+    // Pink icing drips over the edge of the cone.
+    const drip: [number, number][] = []
+    for (let x = x0; x <= x1 + 0.001; x += 0.01) {
+      const d = Math.max(0, Math.sin(x * 9.3) * 0.5 + Math.sin(x * 23.1) * 0.5)
+      drip.push([x, top(x) - 0.012 - d * d * 0.07])
+    }
+    for (let x = x1; x >= x0 - 0.001; x -= 0.02) drip.push([x, top(x) + 0.03])
+    shape(ctx, c.secondary, drip)
+    // Sprinkles on the white.
+    const r = rng(21)
+    const cols = [c.secondary, '#ffd200', '#5fd3b5', '#3aa0ff', '#ff8a00']
+    for (let i = 0; i < 160; i++) {
+      const x = x0 + r() * WW
+      const y = top(x) + 0.05 + r() * (y1 - top(x))
+      const a = r() * Math.PI
+      band(ctx, cols[i % cols.length], [x - Math.cos(a) * 0.018, y - Math.sin(a) * 0.018], [x + Math.cos(a) * 0.018, y + Math.sin(a) * 0.018], 0.013)
+    }
+  },
+  // Inspired by a black retro kit with orange and red pinstripe swooshes.
+  retro(ctx, c) {
+    ctx.fillStyle = c.base
+    ctx.fillRect(x0, y0, WW, WH)
+    const sweeps: [[number, number], [number, number], [number, number], number, Fill][] = [
+      [[-0.95, 0.98], [-0.1, 1.24], [0.6, 1.04], 0.09, c.primary],
+      [[-0.9, 0.9], [0.0, 1.1], [0.62, 0.9], 0.05, c.secondary],
+      [[-0.4, 0.7], [0.2, 0.9], [0.66, 0.72], 0.06, c.primary],
+      [[0.42, 0.6], [0.8, 0.8], [1.25, 0.6], 0.06, c.primary],
+    ]
+    for (const [a, m, b, w, f] of sweeps) swoosh(ctx, f, a, m, b, w)
+    // Fine pinstripes under each swoosh.
+    ctx.strokeStyle = c.accent
+    ctx.lineWidth = 0.007
+    for (const [a, m, b, w] of sweeps) {
+      ctx.beginPath()
+      ctx.moveTo(a[0], a[1] - w * 0.75)
+      ctx.quadraticCurveTo(m[0], m[1] - w * 0.75, b[0], b[1] - w * 0.75)
+      ctx.stroke()
+    }
+  },
+  // Inspired by a blue kit with red and white heritage speed blocks.
+  speedblock(ctx, c) {
+    ctx.fillStyle = c.base
+    ctx.fillRect(x0, y0, WW, WH)
+    // Speed blocks: slanted blocks shrinking towards the rear, white edged.
+    const blocks = [
+      [0.3, 0.9, 0.17, 0.24],
+      [0.1, 0.88, 0.13, 0.2],
+      [-0.06, 0.86, 0.1, 0.17],
+      [-0.18, 0.85, 0.07, 0.13],
+      [-0.27, 0.84, 0.045, 0.1],
+    ]
+    for (const [x, y, w, h] of blocks) {
+      const sk = h * 0.45
+      const pad = 0.012
+      shape(ctx, c.secondary, [
+        [x - pad, y - pad],
+        [x + w + pad, y - pad],
+        [x + w + sk + pad, y + h + pad],
+        [x + sk - pad, y + h + pad],
+      ])
+      shape(ctx, c.primary, [
+        [x, y],
+        [x + w, y],
+        [x + w + sk, y + h],
+        [x + sk, y + h],
+      ])
+    }
+    // Long white and red stripes along the rear.
+    band(ctx, c.secondary, [x0, 1.12], [-0.3, 1.08], 0.05)
+    band(ctx, c.primary, [x0, 1.06], [-0.32, 1.03], 0.035)
+    band(ctx, c.secondary, [-0.3, 0.76], [0.6, 0.8], 0.03)
+    band(ctx, c.secondary, [0.45, 0.6], [x1, 0.75], 0.04)
+    band(ctx, c.primary, [0.5, 0.66], [x1, 0.8], 0.03)
+  },
+  // Inspired by a flag kit: a bold Y split in four colours.
+  ysplit(ctx, c) {
+    ctx.fillStyle = c.base
+    ctx.fillRect(x0, y0, WW, WH)
+    // Lower half in the second colour.
+    shape(ctx, c.secondary, [
+      [x0, y0],
+      [x1, y0],
+      [x1, 0.9],
+      [0.0, 0.94],
+      [x0, 0.7],
+    ])
+    // The Y: arms from the rear top and bottom meet on the shroud and run to the nose.
+    const fork: [number, number] = [0.0, 0.96]
+    const arm = (w: number, fill: Fill) =>
+      shape(ctx, fill, [
+        [x0, 1.22 + w],
+        [fork[0], fork[1] + w],
+        [x1, 0.92 + w],
+        [x1, 0.92 - w],
+        [fork[0], fork[1] - w],
+        [x0, 0.7 - w],
+        [x0, 0.7 + w * 1.4],
+        [fork[0] - w * 2.6, fork[1]],
+        [x0, 1.22 - w * 1.4],
+      ])
+    arm(0.075, '#f4f4f2')
+    arm(0.048, c.primary)
+    // Dark wedge in the fork of the Y, edged in the accent colour.
+    shape(ctx, c.accent, [
+      [x0, 1.13],
+      [fork[0] - 0.2, fork[1]],
+      [x0, 0.79],
+    ])
+    shape(ctx, '#101010', [
+      [x0, 1.09],
+      [fork[0] - 0.28, fork[1]],
+      [x0, 0.83],
+    ])
+  },
+  // Inspired by an orange-to-purple chrome fade kit with black cut-outs.
+  chrome(ctx, c) {
+    ctx.fillStyle = c.base
+    ctx.fillRect(x0, y0, WW, WH)
+    // Soft diagonal light streaks sell the chrome.
+    ctx.save()
+    ctx.globalAlpha = 0.24
+    band(ctx, '#ffffff', [-0.2, 0.5], [0.45, 1.5], 0.16)
+    ctx.globalAlpha = 0.14
+    band(ctx, '#ffffff', [0.05, 0.5], [0.7, 1.5], 0.05)
+    ctx.restore()
+    // Black angular cut-out low on the shroud.
+    shape(ctx, c.primary, [
+      [-0.24, 0.72],
+      [0.62, 0.72],
+      [0.62, 0.84],
+      [0.2, 0.86],
+      [0.46, 1.06],
+      [0.32, 1.06],
+      [-0.04, 0.84],
+    ])
+    // Black tip on the rear fender and the front fender.
+    shape(ctx, c.primary, [
+      [-0.9, 1.0],
+      [-0.5, 1.12],
+      [-0.58, 0.98],
+    ])
+    shape(ctx, c.primary, [
+      [0.75, 0.66],
+      [1.25, 0.7],
+      [1.25, 0.58],
+    ])
+    // Teal accents.
+    band(ctx, c.secondary, [0.02, 1.0], [0.4, 1.2], 0.028)
+    band(ctx, c.secondary, [-0.85, 1.04], [-0.45, 1.09], 0.02)
+    band(ctx, c.accent, [0.26, 0.9], [0.58, 0.9], 0.008)
+  },
+
   dune(ctx, c) {
     ctx.fillStyle = c.base
     ctx.fillRect(x0, y0, WW, WH)
@@ -357,6 +637,80 @@ function anchorBox(panels: Seg[][]) {
   return best
 }
 
+// The largest rectangle of a given width/height ratio that fits inside a
+// panel's real outline (not just its bounding box), so the race number never
+// crosses a slanted edge. Cached: it only changes with the outline.
+const fitCache = new Map<string, { x0: number; y0: number; x1: number; y1: number }>()
+function insideBox(panels: Seg[][], aspect: number) {
+  const pts = (seg: Seg[]) => seg.map((p) => (p.length === 5 ? [p[3], p[4]] : [p[1], p[2]]) as [number, number])
+  const b = anchorBox(panels)
+  const seg = panels.find((sg) => {
+    const q = pts(sg)
+    return Math.min(...q.map((v) => v[0])) === b.x0 && Math.max(...q.map((v) => v[0])) === b.x1
+  })
+  if (!seg) return b
+  const poly = pts(seg)
+  const key = `${aspect}|${poly.length}|${poly[0]}|${poly[poly.length >> 1]}|${b.x0},${b.y0},${b.x1},${b.y1}`
+  const hit = fitCache.get(key)
+  if (hit) return hit
+  const inside = (x: number, y: number) => {
+    let wn = 0
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[j]
+      const [xj, yj] = poly[i]
+      const c = (xj - xi) * (y - yi) - (x - xi) * (yj - yi)
+      if (yi <= y) {
+        if (yj > y && c > 0) wn++
+      } else if (yj <= y && c < 0) wn--
+    }
+    return wn !== 0
+  }
+  const fits = (cx: number, cy: number, h: number) => {
+    const w = h * aspect
+    for (let i = 0; i <= 6; i++) {
+      const t = i / 6
+      for (const [x, y] of [
+        [cx - w / 2 + w * t, cy - h / 2],
+        [cx - w / 2 + w * t, cy + h / 2],
+        [cx - w / 2, cy - h / 2 + h * t],
+        [cx + w / 2, cy - h / 2 + h * t],
+      ])
+        if (!inside(x, y)) return false
+    }
+    return true
+  }
+  let best = { cx: (b.x0 + b.x1) / 2, cy: (b.y0 + b.y1) / 2, h: 0 }
+  const W = b.x1 - b.x0
+  const H = b.y1 - b.y0
+  for (let i = 1; i < 24; i++)
+    for (let j = 1; j < 16; j++) {
+      const cx = b.x0 + (W * i) / 24
+      const cy = b.y0 + (H * j) / 16
+      if (!inside(cx, cy)) continue
+      let lo = best.h
+      let hi = H
+      if (!fits(cx, cy, lo + 1e-4)) continue
+      for (let k = 0; k < 12; k++) {
+        const mid = (lo + hi) / 2
+        if (fits(cx, cy, mid)) lo = mid
+        else hi = mid
+      }
+      if (lo > best.h) best = { cx, cy, h: lo }
+    }
+  const w = best.h * aspect
+  const out = best.h ? { x0: best.cx - w / 2, y0: best.cy - best.h / 2, x1: best.cx + w / 2, y1: best.cy + best.h / 2 } : b
+  fitCache.set(key, out)
+  return out
+}
+
+// Where the race number goes: centred in the biggest box inside the side plate.
+function numberBox(panels: PanelSet) {
+  const b = insideBox(panels.sidePlate, 1.2)
+  const w = b.x1 - b.x0
+  const h = b.y1 - b.y0
+  return { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, w: w * 1.05, h: h * 1.05 }
+}
+
 function place(p: Placement, panels: PanelSet) {
   const b = anchorBox(panels[p.panel])
   const w = b.x1 - b.x0
@@ -424,7 +778,7 @@ export function paintSheet(canvas: HTMLCanvasElement, cfg: KitConfig, side: Side
 
   const font = fontById(cfg.rider.font).css
   const T = TEXT_PLACEMENTS
-  drawText(ctx, cfg.rider.number, place(T.number, panels), side, W, H, font, cfg.rider.numberColor, outlineFor(cfg.rider.numberColor) === '#101010' ? '#101010' : undefined)
+  drawText(ctx, cfg.rider.number, numberBox(panels), side, W, H, font, cfg.rider.numberColor, outlineFor(cfg.rider.numberColor) === '#101010' ? '#101010' : undefined)
   drawText(ctx, cfg.rider.name.toUpperCase(), place(T.name, panels), side, W, H, font, cfg.rider.nameColor, outlineFor(cfg.rider.nameColor))
   if (cfg.makeLettering) {
     drawText(ctx, make.make.toUpperCase(), place(T.make, panels), side, W, H, FONTS.italic.css, cfg.colors.accent, outlineFor(cfg.colors.accent))

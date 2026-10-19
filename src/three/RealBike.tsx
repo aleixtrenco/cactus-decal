@@ -325,6 +325,22 @@ function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: 
   }
 }
 
+// Removes the artwork from areas of the model that must stay bare.
+function clearAreas(c: HTMLCanvasElement, side: Side, areas: [number, number][][] | undefined) {
+  if (!areas?.length) return
+  const ctx = c.getContext('2d')!
+  ctx.save()
+  ctx.setTransform(...worldToSheet(side, c.width))
+  ctx.globalCompositeOperation = 'destination-out'
+  ctx.beginPath()
+  for (const a of areas) {
+    a.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)))
+    ctx.closePath()
+  }
+  ctx.fill()
+  ctx.restore()
+}
+
 // Front plate piece layers on top of the plate artwork (same placement as the
 // print file: the plate art is centred on the piece).
 function paintPlatePieces(P: Projector, cfg: KitConfig, t: BikeTemplate) {
@@ -443,8 +459,12 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
     const paint = () => {
       const roles = platesOnly(cfg) ? (['sidePlate'] as Role[]) : undefined
       paintDecalSheet(P.sheets.right, cfg, 'right', sideOutlines(template, 'right', roles), panels)
-      paintDecalSheet(P.sheets.left, cfg, 'left', sideOutlines(template, 'left', roles), panels)
+      // The bike is symmetric: the left side uses the right side's placed
+      // outlines (mirrored left pieces can't be fitted as precisely).
+      const right = sideOutlines(template, 'right', roles)
+      paintDecalSheet(P.sheets.left, cfg, 'left', right.length ? right : sideOutlines(template, 'left', roles), panels)
       paintSidePieces(P, cfg, template, panels, roles)
+      for (const side of ['right', 'left'] as const) clearAreas(P.sheets[side], side, template.model.exclude)
       paintFrontPlate(P.sheets.plate, cfg)
       paintPlatePieces(P, cfg, template)
       paintFender(P, cfg, template, panels)

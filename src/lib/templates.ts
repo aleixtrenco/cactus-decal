@@ -64,6 +64,9 @@ export interface ModelSetup {
   dy: number
   // Front number plate area on the model, in world units.
   plate: { y: number; w: number; h: number }
+  // Areas (world units, side view) that never get graphics, e.g. the seat
+  // when the model paints it with the same material as the plastics.
+  exclude?: [number, number][][]
 }
 
 // Site-relative model paths (bundled models) also work from a sub-folder.
