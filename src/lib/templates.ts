@@ -64,9 +64,23 @@ export interface ModelSetup {
 }
 
 // Site-relative model paths (bundled models) also work from a sub-folder.
-// (The sandboxed preview can't serve .glb files, so its copies end in .txt.)
-export const modelUrl = (u: string) =>
-  u.startsWith('/') && !u.startsWith('//') ? import.meta.env.BASE_URL + u.slice(1) + (import.meta.env.VITE_HASH_ROUTER && u.endsWith('.glb') ? '.txt' : '') : u
+// The sandboxed preview can't serve binary files, so its bundled models are
+// stored as base64 text and turned back into a file in the browser.
+const resolved = new Map<string, Promise<string>>()
+export function resolveModel(u: string): Promise<string> {
+  const local = u.startsWith('/') && !u.startsWith('//')
+  if (!local) return Promise.resolve(u)
+  const url = import.meta.env.BASE_URL + u.slice(1)
+  if (!import.meta.env.VITE_HASH_ROUTER) return Promise.resolve(url)
+  let p = resolved.get(url)
+  if (!p) {
+    p = fetch(url + '.b64.txt')
+      .then((r) => r.text())
+      .then((b64) => URL.createObjectURL(new Blob([Uint8Array.from(atob(b64.trim()), (c) => c.charCodeAt(0))], { type: 'model/gltf-binary' })))
+    resolved.set(url, p)
+  }
+  return p
+}
 
 export const defaultModelSetup = (url: string): ModelSetup => ({ url, yaw: 0, scale: 1, dx: 0, dy: 0, plate: { y: 1.02, w: 0.3, h: 0.27 } })
 

@@ -4,7 +4,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { WORLD } from '../lib/graphics'
-import { ROLE_LABELS, apply, defaultModelSetup, modelUrl, mul6, pieceToWorld, type BikeTemplate, type M6, type ModelSetup, type TemplatePiece } from '../lib/templates'
+import { ROLE_LABELS, apply, defaultModelSetup, resolveModel, mul6, pieceToWorld, type BikeTemplate, type M6, type ModelSetup, type TemplatePiece } from '../lib/templates'
 import { fitModel } from '../three/RealBike'
 import Icon from './Icon'
 
@@ -20,7 +20,7 @@ async function snapshot(setup: ModelSetup): Promise<string> {
   draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/libs/draco/gltf/')
   loader.setDRACOLoader(draco)
   loader.setMeshoptDecoder(MeshoptDecoder)
-  const gltf = await loader.loadAsync(modelUrl(setup.url))
+  const gltf = await loader.loadAsync(await resolveModel(setup.url))
   const root = gltf.scene
   fitModel(root, setup)
   const scene = new THREE.Scene()
