@@ -159,6 +159,13 @@ export function Footer() {
         <div className="fine">
           <span>© {new Date().getFullYear()} Cactus Decal Lab. Dubai, UAE.</span>
           <span>Brand names are used only to identify bike fitment.</span>
+          <span>
+            Honda 3D model: “FREE Honda CRF 450” by Jacobdesigns (Sketchfab),{' '}
+            <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
+              CC BY 4.0
+            </a>
+            , recoloured for previews.
+          </span>
         </div>
       </div>
     </footer>

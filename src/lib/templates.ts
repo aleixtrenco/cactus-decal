@@ -12,7 +12,7 @@
 
 import { useMemo } from 'react'
 import { create } from 'zustand'
-import { BIKES, bikeById, makeInfo } from '../data/bikes'
+import { BIKES, bikeById, makeInfo, type BikeType } from '../data/bikes'
 import { frontFender, rearFender, shroud, sidePlate, type Seg } from './shapes'
 
 export type Role = 'shroud' | 'sidePlate' | 'rearFender' | 'frontFender' | 'frontPlate' | 'other' | 'ignore'
@@ -67,6 +67,9 @@ export interface ModelSetup {
   // Areas (world units, side view) that never get graphics, e.g. the seat
   // when the model paints it with the same material as the plastics.
   exclude?: [number, number][][]
+  // Bike types this model may stand in for on other models of the same make
+  // (e.g. a motocross model is not shown for trail bikes). Any type if unset.
+  types?: BikeType[]
 }
 
 // Site-relative model paths (bundled models) also work from a sub-folder.
@@ -501,8 +504,8 @@ export function useAvailableBikes() {
 export function modelFor(bikeId: string, templates: Record<string, BikeTemplate>): ModelSetup | undefined {
   const own = templates[bikeId]?.model
   if (own) return own
-  const make = bikeById(bikeId).make
-  return Object.values(templates).find((t) => t.model && bikeById(t.bikeId).make === make)?.model
+  const { make, type } = bikeById(bikeId)
+  return Object.values(templates).find((t) => t.model && bikeById(t.bikeId).make === make && (!t.model.types || t.model.types.includes(type)))?.model
 }
 
 export function panelsFor(cfg: { bikeId: string }) {

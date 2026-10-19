@@ -43,6 +43,7 @@ One model per brand is enough: every bike of the same make without its own model
 - Blender files: `pip install bpy`, then `python tools/blend2glb.py in.blend out.glb "Dark Plastics=Dark Trim"` (renames are optional: only materials named like *livery/plastic/decal* get graphics), then compress with gltfpack as below.
 - Other formats: `.usdz` → `tools/usd2glb.py` (needs `pip install usd-core numpy pillow`), then `npx gltfpack -i in.glb -o out.glb -cc` to compress. FBX/OBJ: export as glTF Binary from Blender.
 - Bundled: `public/models/husq-tcfc-16.glb` (2022 Husqvarna FS 450, converted from the supplied USDZ). Check the source licence allows commercial use before launch.
+- Bundled: `public/models/honda-crf.glb` (+ `-m` phone copy), "FREE Honda CRF 450" by Jacobdesigns on Sketchfab, CC BY 4.0: keep the credit in the site footer. Its materials were renamed so only the shrouds, fenders and number plates take graphics. Set as the Honda motocross model (`types: ["MX"]` in `crf-25.json`), so Honda trail bikes won't use it.
 
 ## Print files
 
