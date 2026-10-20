@@ -166,6 +166,13 @@ export function Footer() {
             </a>
             , recoloured for previews.
           </span>
+          <span>
+            KTM 790 Adventure 3D model: “KTM 790 Adv R Rally 2020” by espero7757 (Sketchfab),{' '}
+            <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
+              CC BY 4.0
+            </a>
+            , recoloured for previews.
+          </span>
         </div>
       </div>
     </footer>
