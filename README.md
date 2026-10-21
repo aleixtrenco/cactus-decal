@@ -28,7 +28,7 @@ Upload each model's normal cut file in `/admin` → Bike templates. The layout i
 - The real outlines are placed on the 3D bike and the proofs. Each piece gets its part of the design, so the design flows from shroud to rear fender like a printed kit.
 - The original SVG is stored privately. Only an outline copy (for the 3D preview) is public.
 
-Outline copies for four models are already included in `public/templates/` (Honda CRF250R/RX · CRF450R/RX 2025, Husqvarna TC/FC/FS 2016–2022, GasGas MC 85 2021–2024, Kawasaki KX250 2025 / KX450 2024–2025). Upload the original SVGs for these in `/admin` too, so print files use the exact cut lines.
+Outline copies for these models are already included in `public/templates/` (Honda CRF250R/RX · CRF450R/RX 2025, Honda CRF1100L Africa Twin Adventure Sports 2020–2023, Husqvarna TC/FC/FS 2016–2022, GasGas MC 85 2021–2024, Kawasaki KX250 2025 / KX450 2024–2025). Upload the original SVGs for these in `/admin` too, so print files use the exact cut lines.
 
 ## 3D bike models
 
@@ -45,6 +45,7 @@ One model per brand is enough: every bike of the same make without its own model
 - Bundled: `public/models/husq-tcfc-16.glb` (2022 Husqvarna FS 450, converted from the supplied USDZ). Check the source licence allows commercial use before launch.
 - Bundled: `public/models/honda-crf.glb` (+ `-m` phone copy), "FREE Honda CRF 450" by Jacobdesigns on Sketchfab, CC BY 4.0: keep the credit in the site footer. Its materials were renamed so only the shrouds, fenders and number plates take graphics. Set as the Honda motocross model (`types: ["MX"]` in `crf-25.json`), so Honda trail bikes won't use it.
 - Bundled: `public/models/ktm-790-adv.glb` (+ `-m` phone copy), "KTM 790 Adv R Rally 2020" by espero7757 on Sketchfab, CC BY 4.0: keep the footer credit. It is a photo scan with one texture, so the plastics were split out by colour (orange, white and blue charts on the body) and the scanned ground cropped away; pieces of `ktm-adv-19.json` are fitted by hand.
+- Bundled: `public/models/honda-africa-twin.glb` (+ `-m` phone copy), "2023 Honda CRF1100L Africa Twin" by VTX on Sketchfab, **CC BY-NC-SA 4.0 (non-commercial)**: get the author's permission or replace it before launch, and keep the footer credit while it is used. Made with `tools/africa_twin_livery.py`: the panniers are removed, and the red, blue and striped bodywork plus the black side panels under the template pieces become the livery. Used for the CRF1100L Africa Twin Adventure Sports template (`crf1100-adv-20.json`, `types: ["Trail"]`), whose pieces are fitted by hand. The model is the standard Africa Twin, so the bigger Adventure Sports tank and fairing pieces are close but not exact on it.
 
 ## Print files
 

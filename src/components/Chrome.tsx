@@ -173,6 +173,13 @@ export function Footer() {
             </a>
             , recoloured for previews.
           </span>
+          <span>
+            Honda Africa Twin 3D model: “2023 Honda CRF1100L Africa Twin” by VTX (Sketchfab),{' '}
+            <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noreferrer">
+              CC BY-NC-SA 4.0
+            </a>
+            , panniers removed and recoloured for previews.
+          </span>
         </div>
       </div>
     </footer>
