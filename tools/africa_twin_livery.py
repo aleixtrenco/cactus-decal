@@ -6,10 +6,10 @@
 #
 # The black side panels share one material with the frame covers and the
 # engine, so only the triangles of it that sit under a placed template piece
-# (right-side `place` transforms in the template JSON) and face outwards
-# become livery.
+# (right-side `place` transforms in the template JSONs; the model serves
+# more than one template) and face outwards become livery.
 #
-#   python3 africa_twin_livery.py at.glb out.glb [template.json]
+#   python3 africa_twin_livery.py at.glb out.glb [template.json ...]
 # then: npx gltfpack -i out.glb -o model.glb -cc -km  (-km keeps the livery
 # materials apart from their look-alike originals)
 
@@ -20,7 +20,7 @@ import sys
 import numpy as np
 
 src, dst = sys.argv[1], sys.argv[2]
-tpl = json.load(open(sys.argv[3])) if len(sys.argv) > 3 else None
+tpls = [json.load(open(f)) for f in sys.argv[3:]]
 
 b = open(src, 'rb').read()
 jl = struct.unpack('<I', b[12:16])[0]
@@ -99,7 +99,7 @@ def inside(pts, poly):
 
 
 outlines = []
-if tpl:
+for tpl in tpls:
     for p in tpl['pieces']:
         if p.get('place') and p['side'] == 'right':
             a, bb, cc, d, e, f = p['place']

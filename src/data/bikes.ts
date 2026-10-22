@@ -59,6 +59,7 @@ export const BIKES: BikeModel[] = [
   { id: 'crf-250r-22', make: 'Honda', model: 'CRF250R / RX', years: '2022–2024', type: 'MX' },
   { id: 'crf-450r-21', make: 'Honda', model: 'CRF450R / RX', years: '2021–2024', type: 'MX' },
   { id: 'crf-25', make: 'Honda', model: 'CRF250R/RX · CRF450R/RX', years: '2025', type: 'MX' },
+  { id: 'crf1000-at-15', make: 'Honda', model: 'CRF1000L Africa Twin', years: '2015–2019', type: 'Trail' },
   { id: 'crf1100-adv-20', make: 'Honda', model: 'CRF1100L Africa Twin Adventure Sports', years: '2020–2023', type: 'Trail' },
   { id: 'kx-250-21', make: 'Kawasaki', model: 'KX250', years: '2021–2024', type: 'MX' },
   { id: 'kx-25', make: 'Kawasaki', model: 'KX250 (2025) · KX450 (2024–2025)', years: '2024–2025', type: 'MX' },
