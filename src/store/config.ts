@@ -109,16 +109,18 @@ export interface KitConfig {
   notes: string
 }
 
+// Every kit starts blank: one base colour, no lettering, number or layers,
+// so the customer builds the whole design on the template.
 export const defaultConfig = (): KitConfig => {
-  const d = designById('factory')
+  const d = designById('blank')
   return {
     // Start on a bike with a real 3D model.
     bikeId: 'husq-tcfc-16',
     designId: d.id,
     colors: { ...d.palette },
     plastics: 'black',
-    rider: { name: 'CACTUS', number: '27', font: 'italic', numberColor: '#101010', plateColor: '#e9c88f', nameColor: '#f4f4f2', ...d.rider },
-    makeLettering: true,
+    rider: { name: '', number: '', font: 'italic', numberColor: '#101010', plateColor: d.palette.base, nameColor: '#101010' },
+    makeLettering: false,
     logos: [],
     layers: [],
     partColors: {},
@@ -147,7 +149,9 @@ export const priceInput = (c: KitConfig): PriceInput => ({
 
 export const platesOnly = (c: { kit?: KitId }) => c.kit === 'plates'
 
-export const STEPS = ['Bike', 'Design', 'Colours', 'Number & name', 'Graphics', 'Extras', 'Review'] as const
+export const STEPS = ['Bike', 'Design', 'Kit & finish', 'Review'] as const
+// The step where the template is designed.
+export const DESIGN_STEP = 1
 export type Step = (typeof STEPS)[number]
 
 interface Store {

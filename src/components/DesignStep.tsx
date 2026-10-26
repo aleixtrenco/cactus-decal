@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { bikeById } from '../data/bikes'
+import { swatchName } from '../data/designs'
 import { FONTS, FONT_IDS, type FontId } from '../data/fonts'
-import { loadImage } from '../lib/graphics'
+import { formatAED, NEON_SURCHARGE } from '../data/pricing'
+import { frontPlateColor, loadImage } from '../lib/graphics'
 import { newId, panelName, panelsAllowed, piecePanels, prepareImage } from '../lib/layers'
+import type { Paint } from '../lib/paint'
 import { useTemplates } from '../lib/templates'
 import { SHAPES, SHAPE_IDS } from '../lib/shapes2d'
 import { platesOnly, useConfig, type Layer, type LayerPanel, type ShapeId } from '../store/config'
@@ -25,16 +29,138 @@ function ShapeIcon({ id }: { id: ShapeId }) {
   return <canvas ref={ref} width={48} height={48} aria-hidden="true" />
 }
 
-// The flat template view: the design on the right side of the bike, where
-// layers can be picked and dragged.
-export default function GraphicsStep() {
+// The colour of the part being designed: a main panel or single piece, the
+// plates' background, or the whole kit's base colour.
+function PartColour({ panel }: { panel: LayerPanel }) {
+  const { config, set, setRider } = useConfig()
+  const template = useTemplates((s) => s.templates[config.bikeId])
+  const front = piecePanels(template, false).find((x) => x.panel === panel)?.piece.role === 'frontPlate'
+  const plate = panel === 'sidePlate' || front
+  const kit = panel === 'kit'
+  const value = panel === 'sidePlate' ? config.rider.plateColor : front ? frontPlateColor(config) : kit ? config.colors.base : (config.partColors[panel] ?? config.colors.base)
+  const own = !plate && !kit && !!config.partColors[panel]
+  const setPart = (c: Paint) =>
+    panel === 'sidePlate'
+      ? setRider({ plateColor: c })
+      : front
+        ? setRider({ frontPlateColor: c })
+        : kit
+          ? set({ colors: { ...config.colors, base: c } })
+          : set({ partColors: { ...config.partColors, [panel]: c } })
+  const backToKit = () => {
+    const next = { ...config.partColors }
+    delete next[panel]
+    set({ partColors: next })
+  }
+  return (
+    <div className="group">
+      <div className="group-label">
+        Colour <span>{plate ? 'Plate background' : own ? swatchName(value) : kit ? 'Every part without its own colour' : 'Kit colour'}</span>
+      </div>
+      <ColorField value={value} onChange={setPart} label={`${panelName(panel, template)} colour`} />
+      {!plate && !kit && (
+        <div className="chips" style={{ marginTop: 12 }}>
+          <button className="chip chip-sm" onClick={() => set({ colors: { ...config.colors, base: value }, partColors: {} })}>
+            Use on every part
+          </button>
+          {own && (
+            <button className="chip chip-sm" onClick={backToKit}>
+              Back to the kit colour
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Race number, name and the bike make lettering. They are moved, resized and
+// turned on the template like any other item.
+function RiderFields() {
+  const { config, setRider, set } = useConfig()
+  const r = config.rider
+  return (
+    <div className="group">
+      <div className="group-label">
+        Number &amp; name <span>Side plates, front plate and shrouds</span>
+      </div>
+      <div className="row-2">
+        <div className="field">
+          <label htmlFor="rider-number">Number</label>
+          <input
+            id="rider-number"
+            className="input big"
+            inputMode="text"
+            maxLength={3}
+            value={r.number}
+            placeholder="27"
+            onChange={(e) => setRider({ number: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '') })}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="rider-name">Name</label>
+          <input
+            id="rider-name"
+            className="input big"
+            maxLength={12}
+            value={r.name}
+            placeholder="Your name"
+            onChange={(e) => setRider({ name: e.target.value.toUpperCase().replace(/[^A-Z0-9 .'-]/g, '') })}
+            autoComplete="nickname"
+          />
+        </div>
+      </div>
+      {(r.number || r.name) && (
+        <>
+          <div className="group-label" style={{ marginTop: 16 }}>
+            Font
+          </div>
+          <div className="chips">
+            {FONT_IDS.map((f) => (
+              <button key={f} className="chip font-chip" aria-pressed={r.font === f} onClick={() => setRider({ font: f })} style={{ font: FONTS[f].css(18) }}>
+                {FONTS[f].label}
+              </button>
+            ))}
+          </div>
+          {r.number && (
+            <>
+              <div className="group-label" style={{ marginTop: 16 }}>
+                Number colour <span>{swatchName(r.numberColor)}</span>
+              </div>
+              <ColorField value={r.numberColor} onChange={(p) => setRider({ numberColor: p })} label="Number colour" />
+            </>
+          )}
+          {r.name && (
+            <>
+              <div className="group-label" style={{ marginTop: 16 }}>
+                Name colour <span>{swatchName(r.nameColor)}</span>
+              </div>
+              <ColorField value={r.nameColor} onChange={(p) => setRider({ nameColor: p })} label="Name colour" />
+            </>
+          )}
+        </>
+      )}
+      <button className="toggle" role="switch" aria-checked={config.makeLettering} onClick={() => set({ makeLettering: !config.makeLettering })} style={{ marginTop: 16 }}>
+        <span>
+          <b>Bike make lettering</b>
+          <small style={{ display: 'block', color: 'var(--muted)', fontSize: 13 }}>Large “{bikeById(config.bikeId).make.toUpperCase()}” on the shrouds</small>
+        </span>
+        <span className="track" aria-hidden="true" />
+      </button>
+    </div>
+  )
+}
+
+// The design step: the customer clicks a piece on the template, then colours
+// it and adds shapes, text, logos or photos to it. The number and name are
+// set here too.
+export default function DesignStep() {
   const { config, addLayer, updateLayer, removeLayer, moveLayer, layerTo } = useConfig()
   const selected = useConfig((s) => s.selected)
   const setSelected = useConfig((s) => s.select)
   const chosen = useConfig((s) => s.panel)
   const setPanel = useConfig((s) => s.setPanel)
   const [picking, setPicking] = useState(false)
-  const [allPieces, setAllPieces] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const file = useRef<HTMLInputElement>(null)
   const logoFile = useRef<HTMLInputElement>(null)
@@ -48,7 +174,6 @@ export default function GraphicsStep() {
   const panel: LayerPanel = allowed.some(([p]) => p === chosen) ? chosen : 'sidePlate'
   const name = (p: LayerPanel) => panelName(p, template)
   const onPanel = config.layers.filter((l) => l.panel === panel)
-  const count = (p: LayerPanel) => ((n) => (n ? `${n} item${n > 1 ? 's' : ''}` : 'Empty'))(config.layers.filter((x) => x.panel === p).length)
   const elsewhere = config.layers.length - onPanel.length
 
   const add = (l: Omit<Layer, 'id' | 'panel'>) => {
@@ -95,45 +220,23 @@ export default function GraphicsStep() {
 
   return (
     <>
-      <h2>Graphics</h2>
-      <p className="lead">Choose a panel, then add your own shapes, text, logos or photos to it. Drag them on the template; the 3D bike updates as you go. Your number and name are on the Number &amp; name step, colours on the Colours step.</p>
+      <h2>Design</h2>
+      <p className="lead">Click any piece on the template to work on it. Colour it, then add shapes, text, logos or photos. Drag, resize and turn them on the template; the 3D bike updates as you go.</p>
 
-      <div className="group">
-        <div className="group-label">
-          1 · Choose a panel <span>or tap a piece on the template</span>
-        </div>
-        <div className="panel-picks" role="group" aria-label="Panel">
-          {panelsAllowed(plates).map(([p, l]) => (
-            <button key={p} className="panel-pick" aria-pressed={panel === p} onClick={() => setPanel(p)}>
-              <b>{l}</b>
-              <small>{count(p)}</small>
-            </button>
-          ))}
-        </div>
-        {pieceChoices.length > 0 && (
-          <>
-            <div className="group-label" style={{ marginTop: 14 }}>
-              Other pieces <span>Front plate, fork guards, fender centre and trim</span>
-            </div>
-            <div className="chips" role="group" aria-label="Other pieces">
-              {(allPieces ? pieceChoices : pieceChoices.slice(0, 8).concat(pieceChoices.filter((x, i) => i >= 8 && x.panel === panel))).map((x) => (
-                <button key={x.panel} className="chip chip-sm" aria-pressed={panel === x.panel} onClick={() => setPanel(x.panel)}>
-                  {x.label}
-                  {config.layers.some((l) => l.panel === x.panel) ? ' •' : ''}
-                </button>
-              ))}
-              {pieceChoices.length > 8 && (
-                <button className="chip chip-sm" onClick={() => setAllPieces(!allPieces)} aria-expanded={allPieces}>
-                  {allPieces ? 'Show fewer' : `Show all ${pieceChoices.length}`}
-                </button>
-              )}
-            </div>
-          </>
+      <div className="editing-now" aria-live="polite">
+        <small>Editing</small>
+        <b>{name(panel)}</b>
+        {panel !== 'kit' && (
+          <button className="chip chip-sm" onClick={() => setPanel('kit')}>
+            Whole kit
+          </button>
         )}
       </div>
 
+      <PartColour panel={panel} />
+
       <div className="group">
-        <div className="group-label">2 · Add to the {name(panel).toLowerCase()}</div>
+        <div className="group-label">Add to the {name(panel).toLowerCase()}</div>
         <div className="add-row">
           <button className="btn btn-ghost btn-sm" aria-expanded={picking} onClick={() => setPicking(!picking)}>
             <Icon name="plus" size={16} /> Shape
@@ -195,7 +298,7 @@ export default function GraphicsStep() {
           </ul>
         ) : (
           <p className="note" style={{ marginTop: 0 }}>
-            Nothing on this panel yet. Add a shape, text, logo or photo above.
+            Nothing on this piece yet. Add a shape, text, logo or photo above.
           </p>
         )}
       </div>
@@ -314,7 +417,11 @@ export default function GraphicsStep() {
           </label>
         </div>
       )}
-      <p className="note">Photos are printed as images. For the sharpest result, upload the largest version you have; we check every file before printing.</p>
+      <RiderFields />
+      <p className="note">
+        Photos are printed as images. For the sharpest result, upload the largest version you have; we check every file before printing. Colours with a ring are neon inks (+ {formatAED(NEON_SURCHARGE)} once
+        per kit).
+      </p>
     </>
   )
 }

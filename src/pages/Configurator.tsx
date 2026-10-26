@@ -2,19 +2,13 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Contours, Header } from '../components/Chrome'
-import ColorField from '../components/ColorField'
-import GraphicsStep from '../components/GraphicsStep'
-import { panelsAllowed, piecePanels } from '../lib/layers'
-import { panelsFor, sideOutlines, useAvailableBikes, useTemplates } from '../lib/templates'
-import { useSeen } from '../lib/seen'
+import DesignStep from '../components/DesignStep'
+import { sideOutlines, useAvailableBikes, useTemplates } from '../lib/templates'
 import TemplateDesigner from '../components/TemplateDesigner'
 import Icon from '../components/Icon'
-import { paintCss } from '../lib/paint'
-import { AnimatedNumber, LazyStage, ProofCanvas } from '../components/bits'
+import { AnimatedNumber, LazyStage } from '../components/bits'
 import { BIKES, MAKES, bikeById, typeLabel, type Make } from '../data/bikes'
 import { CONTACT } from '../data/site'
-import { DESIGNS, PRESETS, designById, swatchName, type Palette } from '../data/designs'
-import { FONTS as NUMBER_FONTS, type FontId as NumberFont } from '../data/fonts'
 import {
   EXTRAS,
   FINISHES,
@@ -25,7 +19,6 @@ import {
   type KitId,
   KIT_PRICES,
   MATERIALS,
-  NEON_SURCHARGE,
   formatAED,
   priceLines,
   priceTotal,
@@ -34,12 +27,11 @@ import {
   type MaterialId,
 } from '../data/pricing'
 import { decodeConfig, encodeConfig } from '../lib/share'
-import { ensureAssets, frontPlateColor, loadImage, riderId, riderKeyOf, riderLayers, riderPlaceOf, riderSideOf, type Side } from '../lib/graphics'
-import { STEPS, pieceIdOf, platesOnly, priceInput, useConfig, type KitConfig, type LayerPanel, type PlasticsId, type RiderText, type TextPlace } from '../store/config'
-import type { Paint } from '../lib/paint'
+import { ensureAssets, loadImage } from '../lib/graphics'
+import { STEPS, platesOnly, priceInput, useConfig, type PlasticsId } from '../store/config'
 import type { StageApi, View } from '../three/Stage'
 
-const STEP_VIEW: View[] = ['three-quarter', 'right', 'three-quarter', 'right', 'plate', 'right', 'three-quarter', 'three-quarter']
+const STEP_VIEW: View[] = ['three-quarter', 'right', 'three-quarter', 'three-quarter']
 const VIEW_BUTTONS: [View, string][] = [
   ['three-quarter', '3/4'],
   ['right', 'Right'],
@@ -50,7 +42,7 @@ const VIEW_BUTTONS: [View, string][] = [
 ]
 
 export default function Configurator() {
-  const { config, step, setStep, load, chooseDesign } = useConfig()
+  const { config, step, setStep, load } = useConfig()
   const [params] = useSearchParams()
   const [view, setView] = useState<View>(STEP_VIEW[0])
   const [toast, setToast] = useState<string | null>(null)
@@ -58,19 +50,15 @@ export default function Configurator() {
   const bike = bikeById(config.bikeId)
   const total = priceTotal(priceInput(config))
 
-  // Deep links: ?design=<id> starts from a design, ?d=<code> restores a saved
-  // kit, ?kit=plates starts a number-plates-only order.
+  // Deep links: ?d=<code> restores a saved kit, ?kit=plates starts a
+  // number-plates-only order.
   useEffect(() => {
     const d = params.get('d')
-    const design = params.get('design')
     const kit = params.get('kit')
     if (kit === 'plates' || kit === 'full') useConfig.getState().set({ kit })
     if (d) {
       const c = decodeConfig(d)
       if (c) load(c)
-    } else if (design && DESIGNS.some((x) => x.id === design)) {
-      chooseDesign(design as KitConfig['designId'])
-      setStep(1)
     }
     // Only on first load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,7 +97,7 @@ export default function Configurator() {
     if (!url) return
     const a = document.createElement('a')
     a.href = url
-    a.download = `cactus-decal-lab-${bike.make}-${config.designId}.png`.toLowerCase()
+    a.download = `cactus-decal-lab-${bike.make}-${bike.model}.png`.toLowerCase().replace(/[^a-z0-9.-]+/g, '-')
     a.click()
   }
 
@@ -152,15 +140,13 @@ export default function Configurator() {
             <div className="viewer-title">
               <AnimatePresence mode="wait">
                 <motion.div
-                  key={bike.id + config.designId}
+                  key={bike.id}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.25 }}
                 >
-                  <div className="display">
-                    {bike.make} {designById(config.designId).name}
-                  </div>
+                  <div className="display">{bike.make}</div>
                   <small>
                     {bike.model} · {bike.years}
                   </small>
@@ -213,11 +199,8 @@ export default function Configurator() {
               >
                 {step === 0 && <BikeStep />}
                 {step === 1 && <DesignStep />}
-                {step === 2 && <ColourStep />}
-                {step === 3 && <RiderStep />}
-                {step === 4 && <GraphicsStep />}
-                {step === 5 && <ExtrasStep />}
-                {step === 6 && <ReviewStep onToast={setToast} onShare={share} />}
+                {step === 2 && <ExtrasStep />}
+                {step === 3 && <ReviewStep onToast={setToast} onShare={share} />}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -445,319 +428,6 @@ function BikeStep() {
   )
 }
 
-function DesignStep() {
-  const { config, chooseDesign, setStep } = useConfig()
-  const previews = useMemo(
-    () =>
-      PRESETS.map((d) => ({
-        d,
-        cfg: { ...config, designId: d.id, colors: { ...d.palette } },
-      })),
-    [config],
-  )
-  const blank = config.designId === 'blank'
-  return (
-    <>
-      <StepHead title="Design" lead="Start from a blank kit and build your own, or pick one of our designs. You can change every colour later." />
-      <button className="design-pick blank-pick" aria-pressed={blank} onClick={() => (blank ? setStep(4) : chooseDesign('blank'))}>
-        <span className="blank-icon" aria-hidden="true">
-          <Icon name="plus" size={26} />
-        </span>
-        <span>
-          <b>Start blank</b>
-          <small>{blank ? 'Selected. Next, add shapes, text or your own photo in Graphics.' : 'An empty kit in one colour. Add shapes, text and photos yourself.'}</small>
-        </span>
-      </button>
-      <div className="group-label" style={{ marginTop: 22 }}>
-        Or start from a design
-      </div>
-      <div className="design-grid">
-        {previews.map(({ d, cfg }) => (
-          <button key={d.id} className="design-pick" aria-pressed={config.designId === d.id} onClick={() => chooseDesign(d.id)}>
-            <ProofCanvas cfg={cfg} width={360} label={`${d.name} preview`} />
-            <b>{d.name}</b>
-          </button>
-        ))}
-      </div>
-      <p className="note">Choosing a new design resets the colours to that design's palette.</p>
-    </>
-  )
-}
-
-function ColourStep() {
-  const { config, set, setColor, setRider, setPanel } = useConfig()
-  const chosen = useConfig((s) => s.panel)
-  const template = useTemplates((s) => s.templates[config.bikeId])
-  const plates = platesOnly(config)
-  const pieces = piecePanels(template, plates)
-  const parts: [LayerPanel, string][] = [...panelsAllowed(plates).filter(([p]) => p !== 'kit'), ...pieces.map((x): [LayerPanel, string] => [x.panel, x.label])]
-  const part = parts.some(([p]) => p === chosen) ? chosen : parts[0][0]
-  // The side plates (both sides) and the front plate each have their own
-  // number-plate background colour.
-  const frontOf = (p: LayerPanel) => pieces.find((x) => x.panel === p)?.piece.role === 'frontPlate'
-  const plateOf = (p: LayerPanel) => p === 'sidePlate' || frontOf(p)
-  const colourOf = (p: LayerPanel) => (p === 'sidePlate' ? config.rider.plateColor : frontOf(p) ? frontPlateColor(config) : (config.partColors[p] ?? config.colors.base))
-  const value = colourOf(part)
-  const custom = !plateOf(part) && !!config.partColors[part]
-  const setPart = (c: Paint) =>
-    part === 'sidePlate' ? setRider({ plateColor: c }) : frontOf(part) ? setRider({ frontPlateColor: c }) : set({ partColors: { ...config.partColors, [part]: c } })
-  const everywhere = () => set({ colors: { ...config.colors, base: value }, partColors: {} })
-  const backToKit = () => {
-    const next = { ...config.partColors }
-    delete next[part]
-    set({ partColors: next })
-  }
-  const name = parts.find(([p]) => p === part)?.[1] ?? 'Part'
-  const [open, setOpen] = useState<keyof Palette | null>(null)
-  const [allPieces, setAllPieces] = useState(false)
-  const zones: [keyof Palette, string, string][] = [
-    ['primary', 'Primary', 'The main shapes of the design'],
-    ['secondary', 'Secondary', 'Supporting shapes and blocks'],
-    ['accent', 'Accent', 'Pinstripes, details and lettering'],
-  ]
-  return (
-    <>
-      <StepHead title="Colours" lead="Pick a part (or tap it on the template), then any colour, hex code or gradient. The colour fills that whole part, on both sides, and nothing else." />
-      <div className="group">
-        <div className="group-label">1 · Choose a part</div>
-        <div className="panel-picks" role="group" aria-label="Part">
-          {parts
-            .filter(([p]) => pieceIdOf(p) === null)
-            .map(([p, l]) => (
-              <button key={p} className="panel-pick" aria-pressed={part === p} onClick={() => setPanel(p)}>
-                <b>
-                  <i className="part-sw" style={{ background: paintCss(colourOf(p)) }} aria-hidden="true" /> {l}
-                </b>
-                <small>{p === 'sidePlate' ? `Plate · ${swatchName(colourOf(p))}` : config.partColors[p] ? swatchName(colourOf(p)) : 'Kit colour'}</small>
-              </button>
-            ))}
-        </div>
-        {pieces.length > 0 && (
-          <div className="chips" role="group" aria-label="Other pieces" style={{ marginTop: 10 }}>
-            {(allPieces ? pieces : pieces.slice(0, 8).concat(pieces.filter((x, i) => i >= 8 && x.panel === part))).map((x) => (
-              <button key={x.panel} className="chip chip-sm grad-end" aria-pressed={part === x.panel} onClick={() => setPanel(x.panel)}>
-                <i style={{ background: paintCss(colourOf(x.panel)) }} /> {x.label}
-              </button>
-            ))}
-            {pieces.length > 8 && (
-              <button className="chip chip-sm" onClick={() => setAllPieces(!allPieces)} aria-expanded={allPieces}>
-                {allPieces ? 'Show fewer' : `Show all ${pieces.length}`}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-      <div className="group">
-        <div className="group-label">
-          2 · Colour of the {name.toLowerCase()} <span>{plateOf(part) ? 'Plate background' : custom ? swatchName(value) : 'Showing the design'}</span>
-        </div>
-        <ColorField value={value} onChange={setPart} label={`${name} colour`} />
-        <div className="chips" style={{ marginTop: 12 }}>
-          {!plateOf(part) && (
-            <button className="chip chip-sm" onClick={everywhere}>
-              Use on every part
-            </button>
-          )}
-          {custom && (
-            <button className="chip chip-sm" onClick={backToKit}>
-              Show the design again
-            </button>
-          )}
-        </div>
-      </div>
-      {config.designId !== 'blank' && (
-        <div className="group">
-          <div className="group-label">
-            Design colours <span>Stripes and details of {designById(config.designId).name}</span>
-          </div>
-          {zones.map(([key, label, help]) => (
-            <div className="zone" key={key}>
-              <button className="zone-head" aria-expanded={open === key} onClick={() => setOpen(open === key ? null : key)}>
-                <span className="sw" style={{ background: paintCss(config.colors[key]) }} aria-hidden="true" />
-                <span>
-                  <b>{label}</b>
-                  <small>
-                    {swatchName(config.colors[key])} · {help}
-                  </small>
-                </span>
-                <Icon name="chevron" />
-              </button>
-              <AnimatePresence initial={false}>
-                {open === key && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.25 }}
-                    style={{ overflow: 'hidden' }}
-                  >
-                    <div className="swatches">
-                      <ColorField value={config.colors[key]} onChange={(p) => setColor(key, p)} label={`${label} colour`} />
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          ))}
-        </div>
-      )}
-      <p className="note">Colours with a ring are neon inks (+ {formatAED(NEON_SURCHARGE)} once per kit). Screens vary, so we print to standard colour references.</p>
-      <button className="btn btn-ghost btn-sm" style={{ marginTop: 16 }} onClick={() => set({ colors: { ...designById(config.designId).palette }, partColors: {} })}>
-        <Icon name="rotate" size={16} /> Reset to design colours
-      </button>
-    </>
-  )
-}
-
-// Size and position of the number, name and make lettering, for each side of
-// the bike on its own: automatic until changed here or on the template.
-function LetteringPlace() {
-  const { config, setRider, select, setPanel } = useConfig()
-  const selected = useConfig((s) => s.selected)
-  const seen = useSeen((s) => s.byBike[config.bikeId])
-  const side: Side = selected && riderKeyOf(selected) ? riderSideOf(selected) : 'right'
-  const items = riderLayers(config, panelsFor(config), side, seen).filter((l) => !platesOnly(config) || l.panel === 'sidePlate')
-  const LABEL: Record<RiderText, string> = { number: 'Number', name: 'Name', make: 'Make' }
-  const key = riderKeyOf(selected) ?? 'number'
-  const item = items.find((l) => l.id === riderId(key, side)) ?? items[0]
-  if (!item) return null
-  const k = riderPlaceOf(item.id)
-  const pick = (id: string, panel: LayerPanel) => (setPanel(panel), select(id))
-  const put = (patch: Partial<TextPlace>) => setRider({ place: { ...config.rider.place, [k]: { x: item.x, y: item.y, size: item.size, rotation: item.rotation, ...patch } } })
-  const other = riderId(riderKeyOf(item.id)!, side === 'right' ? 'left' : 'right')
-  return (
-    <div className="group">
-      <div className="group-label">
-        Size & position <span>{config.rider.place?.[k] ? 'Adjusted' : 'Automatic'}</span>
-      </div>
-      <div className="seg" role="group" aria-label="Side of the bike" style={{ marginBottom: 10 }}>
-        {(['right', 'left'] as const).map((s) => (
-          <button key={s} aria-pressed={side === s} onClick={() => pick(riderId(riderKeyOf(item.id)!, s), item.panel)}>
-            {s === 'right' ? 'Right side' : 'Left side'}
-          </button>
-        ))}
-      </div>
-      <div className="chips" role="group" aria-label="Lettering">
-        {items.map((l) => (
-          <button key={l.id} className="chip chip-sm" aria-pressed={l.id === item.id} onClick={() => pick(l.id, l.panel)}>
-            {LABEL[riderKeyOf(l.id)!]}
-          </button>
-        ))}
-      </div>
-      <div className="sliders" style={{ marginTop: 12 }}>
-        {(
-          [
-            ['Size', 'size', 0.05, 1.2, 0.01],
-            ['Left / right', 'x', 0, 1, 0.01],
-            ['Up / down', 'y', 0, 1, 0.01],
-            ['Tilt', 'rotation', -45, 45, 1],
-          ] as const
-        ).map(([lab, f, min, max, step]) => (
-          <label key={f} className="slider">
-            <span>{lab}</span>
-            <input type="range" min={min} max={max} step={step} value={item[f]} onChange={(e) => put({ [f]: +e.target.value })} />
-          </label>
-        ))}
-      </div>
-      <div className="chips" style={{ marginTop: 10 }}>
-        {config.rider.place?.[k] && (
-          <button className="chip chip-sm" onClick={() => setRider({ place: { ...config.rider.place, [k]: undefined } })}>
-            Back to automatic
-          </button>
-        )}
-        <button className="chip chip-sm" onClick={() => setRider({ place: { ...config.rider.place, [riderPlaceOf(other)]: { x: item.x, y: item.y, size: item.size, rotation: item.rotation } } })}>
-          Copy to the {side === 'right' ? 'left' : 'right'} side
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function RiderStep() {
-  const { config, setRider, set } = useConfig()
-  const r = config.rider
-  return (
-    <>
-      <StepHead
-        title="Number & name"
-        lead="Your number goes on the side plates and front plate, your name and the bike make on the shrouds. Drag or resize them on the template, or use the sliders below. Plate background colours are on the Colours step."
-      />
-      <div className="group row-2">
-        <div className="field">
-          <label htmlFor="rider-number">Number</label>
-          <input
-            id="rider-number"
-            className="input big"
-            inputMode="text"
-            maxLength={3}
-            value={r.number}
-            onChange={(e) =>
-              setRider({
-                number: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, ''),
-              })
-            }
-            aria-describedby="number-help"
-          />
-          <span className="help" id="number-help">
-            Up to 3 characters
-          </span>
-        </div>
-        <div className="field">
-          <label htmlFor="rider-name">Name</label>
-          <input
-            id="rider-name"
-            className="input big"
-            maxLength={12}
-            value={r.name}
-            onChange={(e) =>
-              setRider({
-                name: e.target.value.toUpperCase().replace(/[^A-Z0-9 .'-]/g, ''),
-              })
-            }
-            aria-describedby="name-help"
-            autoComplete="nickname"
-          />
-          <span className="help" id="name-help">
-            Up to 12 characters
-          </span>
-        </div>
-      </div>
-      <div className="group">
-        <div className="group-label">Number & name font</div>
-        <div className="chips">
-          {(Object.keys(NUMBER_FONTS) as NumberFont[]).map((f) => (
-            <button key={f} className="chip" aria-pressed={r.font === f} onClick={() => setRider({ font: f })} style={{ font: NUMBER_FONTS[f].css(20) }}>
-              {NUMBER_FONTS[f].label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="group">
-        <div className="group-label">
-          Number colour <span>{swatchName(r.numberColor)}</span>
-        </div>
-        <ColorField value={r.numberColor} onChange={(p) => setRider({ numberColor: p })} label="Number colour" />
-      </div>
-      <div className="group">
-        <div className="group-label">
-          Name colour <span>{swatchName(r.nameColor)}</span>
-        </div>
-        <ColorField value={r.nameColor} onChange={(p) => setRider({ nameColor: p })} label="Name colour" />
-      </div>
-      <LetteringPlace />
-      <div className="group">
-        <button className="toggle" role="switch" aria-checked={config.makeLettering} onClick={() => set({ makeLettering: !config.makeLettering })}>
-          <span>
-            <b>Bike make lettering</b>
-            <small style={{ display: 'block', color: 'var(--muted)', fontSize: 13 }}>Large “{bikeById(config.bikeId).make.toUpperCase()}” on the shrouds</small>
-          </span>
-          <span className="track" aria-hidden="true" />
-        </button>
-      </div>
-    </>
-  )
-}
-
 function ExtrasStep() {
   const { config, set, toggleExtra } = useConfig()
   const bike = bikeById(config.bikeId)
@@ -880,7 +550,7 @@ function ReviewStep({ onToast, onShare }: { onToast: (s: string) => void; onShar
     ctx.font = 'italic 800 72px "Saira Extra Condensed"'
     ctx.fillText('CACTUS DECAL LAB · PROOF', 60, 100)
     ctx.font = '500 32px Saira'
-    ctx.fillText(`${bike.make} ${bike.model} (${bike.years}) · ${designById(config.designId).name} · ${FINISHES[config.finish].label} · ${MATERIALS[config.material].label} · ${formatAED(total)}`, 60, 160)
+    ctx.fillText(`${bike.make} ${bike.model} (${bike.years}) · ${FINISHES[config.finish].label} · ${MATERIALS[config.material].label} · ${formatAED(total)}`, 60, 160)
     ctx.drawImage(img, 0, 200, W, H)
     const a = document.createElement('a')
     a.href = out.toDataURL('image/png')
@@ -962,10 +632,6 @@ function ReviewStep({ onToast, onShare }: { onToast: (s: string) => void; onShar
               <td colSpan={2}>
                 {bike.make} {bike.model}, {bike.years}
               </td>
-            </tr>
-            <tr>
-              <th scope="row">Design</th>
-              <td colSpan={2}>{designById(config.designId).name}</td>
             </tr>
             <tr>
               <th scope="row">Rider</th>

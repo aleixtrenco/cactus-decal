@@ -513,7 +513,7 @@ function seenArea(gl: THREE.WebGLRenderer, root: THREE.Object3D, cams: ReturnTyp
   }
 }
 
-export default function RealBike({ cfg, template }: { cfg: KitConfig; template: BikeTemplate & { model: ModelSetup } }) {
+export default function RealBike({ cfg, template, stock = false }: { cfg: KitConfig; template: BikeTemplate & { model: ModelSetup }; stock?: boolean }) {
   const gltf = useModel(use(resolveModel(modelUrl(template.model))))
   const gl = useThree((s) => s.gl)
   const P = useMemo(makeProjector, [])
@@ -566,13 +566,14 @@ export default function RealBike({ cfg, template }: { cfg: KitConfig; template: 
     const f = findFender(root)
     if (f) P.uniforms.uFenderRect.value.set(f.x0, f.x1, f.w, 1)
     else P.uniforms.uFenderRect.value.set(0, 0, 0, 0)
-    P.uniforms.uOn.value = 1
+    // Stock: the model's own paint, no graphics.
+    P.uniforms.uOn.value = stock ? 0 : 1
     const area = seenArea(gl, root.children[0], cams, `${template.model.url}|${yaw}|${scale}|${dx}|${dy}`)
     setSeen(area)
     // The template and print file place lettering with the same map.
     useSeen.getState().put(template.bikeId, area)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [root, gl, P, yaw, scale, dx, dy, plate.y, plate.w, plate.h])
+  }, [root, gl, P, yaw, scale, dx, dy, plate.y, plate.w, plate.h, stock])
 
   // Repaint the artwork when the design or the piece placement changes.
   const make = makeInfo(bikeById(cfg.bikeId).make)

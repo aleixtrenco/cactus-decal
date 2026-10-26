@@ -2735,6 +2735,35 @@ p {
 .designer-sel .grip.turn {
   cursor: grab;
 }
+.designer-sel .grip-hit {
+  pointer-events: all;
+  fill: transparent;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.designer-sel .grip-hit.turn {
+  cursor: grab;
+}
+.editing-now {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--cactus);
+  border-radius: 14px;
+  background: rgba(140, 214, 58, 0.06);
+}
+.editing-now small {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.editing-now b {
+  margin-right: auto;
+  font-size: 17px;
+}
 .designer-sel .grip-line {
   stroke: var(--cactus);
   stroke-width: 1.5;

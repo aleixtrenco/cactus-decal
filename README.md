@@ -2,8 +2,8 @@
 
 Website and live 3D graphics configurator for Cactus Decal Lab, Dubai.
 
-- **Home page**: hero with a live 3D bike, design gallery, finishes, FAQ.
-- **Configurator** (`/configurator`): bike → design → colours → name & number → logos → kit & finish → review & pay. Live 3D preview, 2D proof, instant AED price, save/share link.
+- **Home page**: hero with the live 3D Honda CRF 450 in its stock look, customer builds, pricing, finishes, FAQ.
+- **Configurator** (`/configurator`): 4 steps, bike → design → kit & finish → review & pay. Every kit starts blank; on the design step the customer clicks a piece of the template to colour it and add shapes, text (21 racing fonts), logos and photos, plus their number and name. Live 3D preview, 2D proof, instant AED price, save/share link.
 - **Checkout**: Stripe Checkout in AED (card, Apple Pay, Google Pay).
 - **Team area** (`/admin`, password protected): upload bike templates, see orders, download print files for Illustrator.
 
@@ -16,7 +16,8 @@ Built with React, Vite, three.js (react-three-fiber) and Framer Motion. Server f
 | Kit prices (AED 900 motocross, AED 1,300 trail, AED 400 number plates only) and the placeholder finish/extra prices | `src/data/pricing.ts` |
 | Contact details, FAQ answers | `src/data/site.ts` |
 | Bike models and fitment years | `src/data/bikes.ts` |
-| Designs and colour swatches | `src/data/designs.ts` |
+| Colour swatches | `src/data/designs.ts` |
+| Lettering fonts (free Google fonts; add your own `.woff` the same way) | `src/data/fonts.ts`, `src/data/fontIds.ts`, `src/main.tsx` |
 | "Built for UAE heat" claims, material specs | `src/pages/Home.tsx`, `src/data/pricing.ts` |
 
 ## Bike templates (SVG)

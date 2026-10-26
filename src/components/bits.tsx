@@ -12,7 +12,7 @@ const Stage = lazy(() => import('../three/Stage'))
 
 // Lazy 3D stage: three.js loads in its own chunk, and the canvas only
 // mounts once the stage scrolls near the viewport.
-export function LazyStage(props: { cfg: KitConfig; view?: View; autoRotate?: boolean; onApi?: (api: StageApi) => void; interactive?: boolean }) {
+export function LazyStage(props: { cfg: KitConfig; view?: View; autoRotate?: boolean; onApi?: (api: StageApi) => void; interactive?: boolean; stock?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const near = useInView(ref, { margin: '200px', once: true })
   return (

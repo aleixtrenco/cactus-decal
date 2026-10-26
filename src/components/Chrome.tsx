@@ -6,7 +6,6 @@ import { CONTACT } from '../data/site'
 import Icon from './Icon'
 
 const LINKS = [
-  ['Designs', 'designs'],
   ['Builds', 'builds'],
   ['Pricing', 'pricing'],
   ['How it works', 'how'],

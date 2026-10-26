@@ -1,32 +1,22 @@
-import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect, useMemo, useState } from 'react'
+import { motion } from 'framer-motion'
+import { useMemo } from 'react'
 import AppLink from '../components/AppLink'
 import { CactusSpines, Contours, Footer, Header } from '../components/Chrome'
 import Icon, { type IconName } from '../components/Icon'
-import { designPreview, LazyStage, Reveal } from '../components/bits'
+import { LazyStage, Reveal } from '../components/bits'
 import { MAKES } from '../data/bikes'
-import { DESIGNS, PRESETS } from '../data/designs'
 import { FINISHES, formatAED, KIT_PARTS, KIT_PRICES, PLATES_KIT, PLATES_PARTS, type FinishId } from '../data/pricing'
 import { FAQ } from '../data/site'
+import { defaultConfig } from '../store/config'
 
-const HERO_BIKE = 'husq-tcfc-16'
-const HERO_ROTATION = ['factory', 'chrome', 'speedblock', 'retro', 'sugar'] as const
+// The home page shows the real Honda CRF 450 model in its stock look.
+const HERO_BIKE = 'crf-25'
+const HERO_NAME = 'Honda CRF450R'
 
 function Hero() {
-  const [i, setI] = useState(0)
   const reduce = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const finePointer = typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches
-
-  useEffect(() => {
-    if (reduce) return
-    const t = setInterval(() => setI((n) => (n + 1) % HERO_ROTATION.length), 4200)
-    return () => clearInterval(t)
-  }, [reduce])
-
-  const id = HERO_ROTATION[i]
-  // The hero shows the real Husqvarna model.
-  const cfg = useMemo(() => ({ ...designPreview(id), bikeId: HERO_BIKE }), [id])
-  const name = DESIGNS.find((d) => d.id === id)!.name
+  const cfg = useMemo(() => ({ ...defaultConfig(), bikeId: HERO_BIKE }), [])
 
   const line = {
     hidden: { y: '105%' },
@@ -57,7 +47,7 @@ function Hero() {
           </h1>
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55, duration: 0.8 }}>
             <p>
-              Design your own graphics kit on a live 3D bike. Pick your model, choose a design, add your name and number, and watch every
+              Design your own graphics kit on a live 3D bike. Pick your model, design it on its real print template, add your name and number, and watch every
               change land in real time. We print it in Dubai and ship across the UAE.
             </p>
             <div className="hero-ctas">
@@ -65,14 +55,14 @@ function Hero() {
                 Start designing <Icon name="arrow" size={18} />
               </AppLink>
               <a
-                href="#designs"
+                href="#how"
                 className="btn btn-ghost"
                 onClick={(e) => {
                   e.preventDefault()
-                  document.getElementById('designs')?.scrollIntoView({ behavior: 'smooth' })
+                  document.getElementById('how')?.scrollIntoView({ behavior: 'smooth' })
                 }}
               >
-                Browse designs
+                How it works
               </a>
             </div>
             <p className="fits">
@@ -83,16 +73,12 @@ function Hero() {
 
         <div className="hero-stage">
           <div className="stage-fill">
-            <LazyStage cfg={cfg} view="hero" autoRotate={!reduce} interactive={finePointer} />
+            <LazyStage cfg={cfg} view="hero" autoRotate={!reduce} interactive={finePointer} stock />
           </div>
           <div className="now-showing" aria-live="polite">
             <span className="dot" aria-hidden="true" />
             Live 3D
-            <AnimatePresence mode="wait">
-              <motion.b key={id} initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -14, opacity: 0 }} transition={{ duration: 0.3 }}>
-                {name}
-              </motion.b>
-            </AnimatePresence>
+            <b>{HERO_NAME}</b>
           </div>
           {finePointer && (
             <div className="drag-hint" aria-hidden="true">
@@ -131,14 +117,14 @@ function Ticker() {
 
 const STEPS: [string, string][] = [
   ['Pick your bike', 'Choose your make, model and year so every panel is cut to fit.'],
-  ['Choose a design', 'Start from one of our designs and see it on the bike in 3D.'],
-  ['Make it yours', 'Recolour every zone, add your name, number and sponsor logos.'],
+  ['Design it', 'Click any piece of your template to colour it and add shapes, text, logos and your name and number.'],
+  ['Pick your finish', 'Gloss, matte, chrome or holographic, plus any extras.'],
   ['We print & ship', 'Approve your proof and we print in Dubai, then ship or fit it.'],
 ]
 
 const FEATURES: [IconName, string, string][] = [
   ['cube', '360° live preview', 'Spin, zoom and check every angle as you design.'],
-  ['palette', 'Every zone, your colours', 'Base, primary, secondary and accent, including neon inks.'],
+  ['palette', 'Every piece, your colours', 'Click a piece to colour it, including gradients and neon inks.'],
   ['hash', 'Name & number', 'Race fonts, plate colours and outlines that stay readable.'],
   ['upload', 'Your sponsor logos', 'Upload team and sponsor logos and place them on the kit.'],
   ['sparkle', 'Four finishes', 'Gloss, matte, chrome or holographic, previewed in real light.'],
@@ -158,13 +144,13 @@ const BUILDS = [
 ]
 
 const PLANS = [
-  { title: 'Motocross kit', body: KIT_PARTS, price: KIT_PRICES.MX.price, to: '/configurator?kit=full', cta: 'Design a kit', render: 'factory', featured: true },
-  { title: 'Trail bike kit', body: KIT_PARTS, price: KIT_PRICES.Trail.price, to: '/configurator?kit=full', cta: 'Design a kit', render: 'chrome' },
-  { title: 'Number plates only', body: `${PLATES_PARTS}.`, price: PLATES_KIT.price, to: '/configurator?kit=plates', cta: 'Design plates', render: 'speedblock-plates' },
+  { title: 'Motocross kit', body: KIT_PARTS, price: KIT_PRICES.MX.price, to: '/configurator?kit=full', cta: 'Design a kit', render: 'gallery/build-1.webp', featured: true },
+  { title: 'Trail bike kit', body: KIT_PARTS, price: KIT_PRICES.Trail.price, to: '/configurator?kit=full', cta: 'Design a kit', render: 'gallery/build-4.webp' },
+  { title: 'Number plates only', body: `${PLATES_PARTS}.`, price: PLATES_KIT.price, to: '/configurator?kit=plates', cta: 'Design plates', render: 'gallery/build-5.webp' },
 ]
 
 export default function Home() {
-  const promoCfg = useMemo(() => ({ ...designPreview('chrome'), bikeId: HERO_BIKE }), [])
+  const promoCfg = useMemo(() => ({ ...defaultConfig(), bikeId: HERO_BIKE }), [])
   return (
     <>
       <a href="#main" className="skip-link">
@@ -203,65 +189,6 @@ export default function Home() {
                 </li>
               ))}
             </ol>
-          </div>
-        </section>
-
-        <section id="designs" className="section" style={{ paddingTop: 0 }}>
-          <div className="container">
-            <div className="section-head">
-              <Reveal>
-                <span className="eyebrow">Start from a design</span>
-                <h2 className="display">
-                  Pick a base.
-                  <br />
-                  Make it yours.
-                </h2>
-              </Reveal>
-              <Reveal delay={0.1}>
-                <p>
-                  Every design is fully editable: colours, name, number, logos and finish. A fully custom kit is {formatAED(KIT_PRICES.MX.price)} for a
-                  motocross bike and {formatAED(KIT_PRICES.Trail.price)} for a trail bike.
-                </p>
-              </Reveal>
-            </div>
-            <div className="designs">
-              <Reveal>
-                <AppLink to="/configurator?design=blank" className="design-card blank-card">
-                  <div className="thumb">
-                    <span className="blank-plus" aria-hidden="true">
-                      <Icon name="plus" size={40} />
-                    </span>
-                  </div>
-                  <div className="meta">
-                    <div>
-                      <h3>Start blank</h3>
-                      <p>An empty kit. Build it yourself with shapes, text and your own photos.</p>
-                    </div>
-                    <span className="go" aria-hidden="true">
-                      <Icon name="arrow" size={18} />
-                    </span>
-                  </div>
-                </AppLink>
-              </Reveal>
-              {PRESETS.map((d, i) => (
-                <Reveal key={d.id} delay={((i + 1) % 4) * 0.06}>
-                  <AppLink to={`/configurator?design=${d.id}`} className="design-card">
-                    <div className="thumb">
-                      <img className="render" src={asset(`renders/${d.id}.webp`)} alt={`${d.name} design on a Husqvarna, rendered in 3D`} loading="lazy" width={960} height={600} />
-                    </div>
-                    <div className="meta">
-                      <div>
-                        <h3>{d.name}</h3>
-                        <p>{d.blurb}</p>
-                      </div>
-                      <span className="go" aria-hidden="true">
-                        <Icon name="arrow" size={18} />
-                      </span>
-                    </div>
-                  </AppLink>
-                </Reveal>
-              ))}
-            </div>
           </div>
         </section>
 
@@ -316,7 +243,7 @@ export default function Home() {
                 <Reveal key={plan.title} delay={i * 0.07}>
                   <div className={`plan${plan.featured ? ' featured' : ''}`}>
                     <div className="plan-thumb">
-                      <img className="render" src={asset(`renders/${plan.render}.webp`)} alt={`${plan.title}, rendered in 3D`} loading="lazy" width={960} height={600} />
+                      <img className="render" src={asset(plan.render)} alt={`${plan.title}: a customer kit`} loading="lazy" width={960} height={600} />
                     </div>
                     <h3>{plan.title}</h3>
                     <p>{plan.body}</p>
@@ -335,7 +262,7 @@ export default function Home() {
           <div className="container promo">
             <Reveal>
               <div className="promo-visual">
-                <LazyStage cfg={promoCfg} view="front" autoRotate interactive={false} />
+                <LazyStage cfg={promoCfg} view="front" autoRotate interactive={false} stock />
               </div>
             </Reveal>
             <div>

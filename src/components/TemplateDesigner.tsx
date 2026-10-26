@@ -3,7 +3,7 @@ import { drawPieceLayer, drawUpright, ensureAssets, levelAngle, fillPieceSolid, 
 import { useSeen } from '../lib/seen'
 import { apply, builtInTemplate, invert, mul6, panelKey, panelPieces, panelsFor, pieceToWorld, useTemplates, type M6, type Role, type TemplatePiece } from '../lib/templates'
 import { firstColor, paintCss } from '../lib/paint'
-import { pieceIdOf, platesOnly, useConfig, type Layer, type LayerPanel, type TextPlace } from '../store/config'
+import { DESIGN_STEP, pieceIdOf, platesOnly, useConfig, type Layer, type LayerPanel, type TextPlace } from '../store/config'
 import { panelName } from '../lib/layers'
 import Icon from './Icon'
 
@@ -20,9 +20,6 @@ type View = 'both' | 'right' | 'left'
 const LETTERED: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
 const PLATES: Role[] = ['frontPlate', 'sidePlate']
 const MAIN: Role[] = ['shroud', 'sidePlate', 'rearFender', 'frontFender']
-const COLOURS_STEP = 2
-const NUMBER_STEP = 3
-const GRAPHICS_STEP = 4
 
 // A piece-panel layer as it sits on `piece`: mirrored when that piece is the
 // other side's twin of the piece naming the panel.
@@ -354,10 +351,8 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       return select(null)
     }
     const l = layerAt(t, hitPiece)
-    // Picking a part while colouring stays on the Colours step.
-    // The number and lettering are edited on their own step.
-    const want = l && riderKeyOf(l.id) ? NUMBER_STEP : GRAPHICS_STEP
-    if (step !== want && (l || step !== COLOURS_STEP)) setStep(want)
+    // Everything on the template is edited on the design step.
+    if (step !== DESIGN_STEP) setStep(DESIGN_STEP)
     if (!l) {
       // Tapping a piece picks its panel for designing.
       const p = panelOf(hitPiece.host)
@@ -517,16 +512,17 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
     const dy = top[1] - cy
     const len = Math.hypot(dx, dy) || 1
     const turn: Pt = [top[0] + (dx / len) * 26, top[1] + (dy / len) * 26]
-    return { cx, cy, corner, top, turn, sign: first.sign, minY: Math.min(...pts.map((p) => p[1]), turn[1]) }
+    return { cx, cy, corner, top, turn, sign: first.sign, minY: Math.min(...pts.map((p) => p[1]), turn[1]), maxY: Math.max(...pts.map((p) => p[1]), turn[1], corner[1]) }
   }, [selPolys])
 
-  const local = (e: RPointerEvent): Pt => {
+  const local = (e: { clientX: number; clientY: number }): Pt => {
     const r = wrap.current!.getBoundingClientRect()
     return [e.clientX - r.left, e.clientY - r.top]
   }
   const startHandle = (e: RPointerEvent, mode: 'size' | 'turn') => {
     if (!sel || !grips) return
     e.stopPropagation()
+    e.preventDefault()
     const [x, y] = local(e)
     handle.current = {
       mode,
@@ -538,11 +534,30 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       rotation: sel.rotation,
       sign: grips.sign,
     }
-    ;(e.target as Element).setPointerCapture(e.pointerId)
+    // Followed on the whole window: small handles lose the pointer otherwise
+    // (pointer capture on SVG is unreliable in some browsers).
+    const onMove = (ev: PointerEvent) => moveHandle(ev)
+    const onUp = () => {
+      handle.current = null
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }
-  const moveHandle = (e: RPointerEvent) => {
+  // The latest selection, for the window-level handle listeners.
+  const selRef = useRef(sel)
+  selRef.current = sel
+  const updateRef = useRef(updateLayer)
+  updateRef.current = updateLayer
+  const moveHandle = (e: PointerEvent) => {
     const h = handle.current
+    const sel = selRef.current
+    const updateLayer = updateRef.current
     if (!h || !sel) return
+    e.preventDefault()
     const [x, y] = local(e)
     if (h.mode === 'size') {
       const k = Math.hypot(x - h.cx, y - h.cy) / h.d0
@@ -556,7 +571,6 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
       updateLayer(sel.id, { rotation: Math.abs(r - snap) < 4 ? snap : Math.round(r) })
     }
   }
-  const endHandle = () => (handle.current = null)
   const resize = (k: number) => sel && updateLayer(sel.id, { size: +Math.min(1.5, Math.max(0.03, sel.size * k)).toFixed(3) })
 
   return (
@@ -605,14 +619,22 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
           {grips && (
             <>
               <line x1={grips.top[0]} y1={grips.top[1]} x2={grips.turn[0]} y2={grips.turn[1]} className="grip-line" />
-              <circle className="grip turn" cx={grips.turn[0]} cy={grips.turn[1]} r={9} onPointerDown={(e) => startHandle(e, 'turn')} onPointerMove={moveHandle} onPointerUp={endHandle} />
-              <rect className="grip size" x={grips.corner[0] - 8} y={grips.corner[1] - 8} width={16} height={16} rx={3} onPointerDown={(e) => startHandle(e, 'size')} onPointerMove={moveHandle} onPointerUp={endHandle} />
+              <circle className="grip turn" cx={grips.turn[0]} cy={grips.turn[1]} r={9} />
+              <rect className="grip size" x={grips.corner[0] - 8} y={grips.corner[1] - 8} width={16} height={16} rx={3} />
+              {/* Larger invisible areas make the handles easy to grab. */}
+              <circle className="grip-hit turn" cx={grips.turn[0]} cy={grips.turn[1]} r={18} onPointerDown={(e) => startHandle(e, 'turn')} />
+              <circle className="grip-hit size" cx={grips.corner[0]} cy={grips.corner[1]} r={18} onPointerDown={(e) => startHandle(e, 'size')} />
             </>
           )}
         </svg>
       )}
       {interactive && sel && grips && (
-        <div className="sel-tools" style={{ left: Math.min(Math.max(grips.cx, 120), size.w - 120), top: Math.max(grips.minY - 58, 70) }}>
+        // Above the item, or below it when there's no room, so it never
+        // covers the rotate and resize handles.
+        <div
+          className="sel-tools"
+          style={{ left: Math.min(Math.max(grips.cx, 170), size.w - 170), top: grips.minY - 66 >= 64 ? grips.minY - 66 : Math.min(grips.maxY + 22, size.h - 110) }}
+        >
           <button onClick={() => resize(1 / 1.15)} aria-label="Smaller" title="Smaller">
             −
           </button>
