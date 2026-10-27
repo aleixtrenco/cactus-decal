@@ -79,6 +79,7 @@ export default function Stage({
   onApi,
   interactive = true,
   stock = false,
+  badge,
 }: {
   cfg: KitConfig
   view?: View
@@ -87,6 +88,8 @@ export default function Stage({
   interactive?: boolean
   // Show the model as it comes, without graphics (e.g. on the home page).
   stock?: boolean
+  // With `stock`: an image shown on the shrouds (e.g. our logo).
+  badge?: string
 }) {
   // If the device drops the 3D context (usually out of graphics memory), stop
   // and let the surrounding error boundary show the flat preview instead of
@@ -116,7 +119,7 @@ export default function Stage({
         <Lightformer intensity={0.8} position={[0, 1, -6]} scale={[10, 3, 1]} />
       </Environment>
       <Suspense fallback={null}>
-        <BikeFor cfg={cfg} stock={stock} />
+        <BikeFor cfg={cfg} stock={stock} badge={badge} />
         <ContactShadows position={[0, 0, 0]} opacity={0.55} scale={5} blur={2.4} far={1.2} resolution={512} frames={1} color="#000" />
       </Suspense>
       <Rig view={view} autoRotate={autoRotate} onApi={onApi} />
@@ -125,7 +128,7 @@ export default function Stage({
 }
 
 // The real 3D model when this bike has one, otherwise the built-in bike.
-function BikeFor({ cfg, stock }: { cfg: KitConfig; stock: boolean }) {
+function BikeFor({ cfg, stock, badge }: { cfg: KitConfig; stock: boolean; badge?: string }) {
   const templates = useTemplates((s) => s.templates)
   const own = templates[cfg.bikeId]
   const model = modelFor(cfg.bikeId, templates)
@@ -134,7 +137,7 @@ function BikeFor({ cfg, stock }: { cfg: KitConfig; stock: boolean }) {
   if (template)
     return (
       <ModelFallback key={template.model.url} fallback={<Bike cfg={cfg} />}>
-        <RealBike cfg={cfg} template={template} stock={stock} />
+        <RealBike cfg={cfg} template={template} stock={stock} badge={badge} />
       </ModelFallback>
     )
   return <Bike cfg={cfg} />

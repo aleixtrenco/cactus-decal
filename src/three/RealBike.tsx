@@ -15,12 +15,12 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
-import { drawLayer, drawPieceLayer, ensureAssets, fillPieceSolid, frontPlateColor, paintDecalSheet, paintFrontPlate, paintSheet, pieceFill, riderId, riderLayers, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
+import { drawLayer, drawPieceLayer, ensureAssets, loadImage, shroudBadgeBox, fillPieceSolid, frontPlateColor, paintDecalSheet, paintFrontPlate, paintSheet, pieceFill, riderId, riderLayers, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
 import { drawZones } from '../lib/zones'
 import { useSeen } from '../lib/seen'
 import { paintStyle } from '../lib/paint'
 import { FRONT_WHEEL } from '../lib/shapes'
-import { invert, modelUrl, mul6, onModel, panelKey, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role, type TemplatePiece } from '../lib/templates'
+import { apply, invert, modelUrl, mul6, onModel, panelKey, panelSet, pieceToWorld, resolveModel, sideOutlines, type BikeTemplate, type M6, type ModelSetup, type Role, type TemplatePiece } from '../lib/templates'
 import { bikeById, makeInfo } from '../data/bikes'
 import { pieceIdOf, plasticsHex, platesOnly, type KitConfig, type LayerPanel } from '../store/config'
 
@@ -194,7 +194,8 @@ float camDist(sampler2D d, vec2 uv) { return uCam.y + texture2D(d, uv).x * (uCam
         '#include <map_fragment>',
         `#include <map_fragment>
 #if CDL_LIVERY == 1
-if (uOn > 0.5) diffuseColor.rgb = uPlastic;
+// uOn: 0 stock paint, 1 the customer's design, 2 stock paint with a badge.
+if (uOn > 0.5 && uOn < 1.5) diffuseColor.rgb = uPlastic;
 #endif
 if (uOn > 0.5) {
   float ww = uWorld.y - uWorld.x;
@@ -211,7 +212,7 @@ if (uOn > 0.5) {
   }
   // Front number plate, projected from the front.
   vec2 pr = vec2(-vDecalPos.z / uPlateRect.y + 0.5, (vDecalPos.y - uPlateRect.x) / uPlateRect.z + 0.5);
-  bool onPlate = vDecalNormal.x > 0.25 && all(greaterThan(pr, vec2(0.0))) && all(lessThan(pr, vec2(1.0)));
+  bool onPlate = uOn < 1.5 && vDecalNormal.x > 0.25 && all(greaterThan(pr, vec2(0.0))) && all(lessThan(pr, vec2(1.0)));
   if (onPlate) {
     vec2 fuv = vec2((-vDecalPos.z + 0.6) / 1.2, v);
     onPlate = abs((uCam.x - vDecalPos.x) - camDist(uDepthF, fuv)) < tol * 1.5;
@@ -220,7 +221,7 @@ if (uOn > 0.5) {
   // Front fender, projected from above.
   vec4 fr = uFenderRect;
   // The plate leans back, so it is also seen from above: keep the fender art off it.
-  if (!onPlate && fr.w > 0.5 && vDecalNormal.y > 0.2 && vDecalPos.x > fr.x && vDecalPos.x < fr.y && abs(vDecalPos.z) < fr.z) {
+  if (!onPlate && uOn < 1.5 && fr.w > 0.5 && vDecalNormal.y > 0.2 && vDecalPos.x > fr.x && vDecalPos.x < fr.y && abs(vDecalPos.z) < fr.z) {
     vec2 tuv = vec2(0.5 - vDecalPos.z / (2.0 * fr.z), 1.0 - (vDecalPos.x - fr.x) / (fr.y - fr.x));
     vec2 duv = vec2((vDecalPos.x - uWorld.x) / ww, (-vDecalPos.z + ${TOP_Z.toFixed(3)}) / ${(TOP_Z * 2).toFixed(3)});
     if (abs((uCam.x - vDecalPos.y) - camDist(uDepthT, duv)) < tol * 1.5) {
@@ -362,6 +363,46 @@ function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: 
       paintPieceLayers(c, cfg, t, p, base)
     }
   }
+}
+
+// A badge on the visible part of the shrouds, both sides, level and readable.
+function paintBadge(P: Projector, img: HTMLImageElement, panels: ReturnType<typeof panelSet>, seen?: SeenArea) {
+  if (!img.naturalWidth) return
+  // Trimmed to its visible pixels, so empty margins don't shrink it.
+  const src = Object.assign(document.createElement('canvas'), { width: img.naturalWidth, height: img.naturalHeight })
+  const sctx = src.getContext('2d')!
+  sctx.drawImage(img, 0, 0)
+  const px = sctx.getImageData(0, 0, src.width, src.height).data
+  let x0 = src.width
+  let y0 = src.height
+  let x1 = 0
+  let y1 = 0
+  for (let y = 0; y < src.height; y++)
+    for (let x = 0; x < src.width; x++)
+      if (px[(y * src.width + x) * 4 + 3] > 16) {
+        x0 = Math.min(x0, x)
+        y0 = Math.min(y0, y)
+        x1 = Math.max(x1, x + 1)
+        y1 = Math.max(y1, y + 1)
+      }
+  if (x1 <= x0 || y1 <= y0) return
+  const aspect = (x1 - x0) / (y1 - y0)
+  const b = shroudBadgeBox(panels, aspect, seen)
+  const h = Math.min(b.h, b.w / aspect) * 1.15
+  const w = h * aspect
+  for (const side of ['right', 'left'] as const) {
+    const c = P.sheets[side]
+    const ctx = c.getContext('2d')!
+    const m = worldToSheet(side, c.width)
+    // Drawn in the sheet's own axes: upright, and unmirrored on the left side.
+    const [cx, cy] = apply(m, [b.x, b.y])
+    const k = Math.abs(m[0])
+    ctx.save()
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.drawImage(src, x0, y0, x1 - x0, y1 - y0, cx - (w * k) / 2, cy - (h * k) / 2, w * k, h * k)
+    ctx.restore()
+  }
+  for (const tx of P.textures) tx.needsUpdate = true
 }
 
 // Removes the artwork from areas of the model that must stay bare.
@@ -520,7 +561,7 @@ function seenArea(gl: THREE.WebGLRenderer, root: THREE.Object3D, cams: ReturnTyp
   }
 }
 
-export default function RealBike({ cfg, template, stock = false }: { cfg: KitConfig; template: BikeTemplate & { model: ModelSetup }; stock?: boolean }) {
+export default function RealBike({ cfg, template, stock = false, badge }: { cfg: KitConfig; template: BikeTemplate & { model: ModelSetup }; stock?: boolean; badge?: string }) {
   const gltf = useModel(use(resolveModel(modelUrl(template.model))))
   const gl = useThree((s) => s.gl)
   const P = useMemo(makeProjector, [])
@@ -574,19 +615,28 @@ export default function RealBike({ cfg, template, stock = false }: { cfg: KitCon
     if (f) P.uniforms.uFenderRect.value.set(f.x0, f.x1, f.w, 1)
     else P.uniforms.uFenderRect.value.set(0, 0, 0, 0)
     // Stock: the model's own paint, no graphics.
-    P.uniforms.uOn.value = stock ? 0 : 1
+    P.uniforms.uOn.value = stock ? (badge ? 2 : 0) : 1
     const area = seenArea(gl, root.children[0], cams, `${template.model.url}|${yaw}|${scale}|${dx}|${dy}`)
     setSeen(area)
     // The template and print file place lettering with the same map.
     useSeen.getState().put(template.bikeId, area)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [root, gl, P, yaw, scale, dx, dy, plate.y, plate.w, plate.h, stock])
+  }, [root, gl, P, yaw, scale, dx, dy, plate.y, plate.w, plate.h, stock, badge])
 
   // Repaint the artwork when the design or the piece placement changes.
   const make = makeInfo(bikeById(cfg.bikeId).make)
   const panels = useMemo(() => panelSet(template, make.shroudLift, make.tailRise), [template, make.shroudLift, make.tailRise])
   useEffect(() => {
     let alive = true
+    if (stock) {
+      // The stock paint, with only a badge (e.g. our logo) on the shrouds.
+      for (const side of ['right', 'left'] as const) P.sheets[side].getContext('2d')!.clearRect(0, 0, P.sheets[side].width, P.sheets[side].height)
+      if (badge) loadImage(badge).then((img) => alive && paintBadge(P, img, panels, seen))
+      for (const t of P.textures) t.needsUpdate = true
+      return () => {
+        alive = false
+      }
+    }
     const paint = () => {
       const roles = platesOnly(cfg) ? (['sidePlate'] as Role[]) : undefined
       paintDecalSheet(P.sheets.right, cfg, 'right', sideOutlines(template, 'right', roles), panels, seen)
@@ -605,7 +655,7 @@ export default function RealBike({ cfg, template, stock = false }: { cfg: KitCon
     return () => {
       alive = false
     }
-  }, [cfg, template, panels, P, seen])
+  }, [cfg, template, panels, P, seen, stock, badge])
 
   useEffect(() => {
     P.uniforms.uPlastic.value.set(plasticsHex(cfg))

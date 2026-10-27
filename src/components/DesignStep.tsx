@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { bikeById } from '../data/bikes'
+import { useEffect, useRef, useState } from 'react'
 import { swatchName } from '../data/designs'
-import { FONTS, FONT_IDS, type FontId } from '../data/fonts'
+import FontPicker from './FontPicker'
 import { formatAED, NEON_SURCHARGE } from '../data/pricing'
 import { frontPlateColor, loadImage } from '../lib/graphics'
 import { newId, panelName, panelsAllowed, piecePanels, prepareImage } from '../lib/layers'
 import { firstColor, paintCss, type Paint } from '../lib/paint'
 import { pieceToWorld, useTemplates, type BikeTemplate, type TemplatePiece } from '../lib/templates'
-import { drawZones, zoneKey, zonesFor, ZONE_LABELS, type ZoneId } from '../lib/zones'
+import { drawZones, movableZone, zoneKey, zonesFor, ZONE_LABELS, type ZoneAdjust, type ZoneId } from '../lib/zones'
 import { SHAPES, SHAPE_IDS } from '../lib/shapes2d'
 import { platesOnly, useConfig, type Layer, type LayerPanel, type ShapeId } from '../store/config'
 import ColorField from './ColorField'
@@ -92,7 +91,7 @@ function ZoneThumb({ piece, template, id }: { piece: TemplatePiece; template: Bi
     ctx.closePath()
     ctx.fillStyle = '#d9d7cf'
     ctx.fill()
-    const cfg = { ...useConfig.getState().config, zones: { [zoneKey('shroud', id)]: '#8cd63a' } }
+    const cfg = { ...useConfig.getState().config, zones: { [zoneKey('shroud', id)]: '#8cd63a' }, zoneAdjust: {} }
     drawZones(ctx, cfg, piece, 'shroud', base, pieceToWorld(piece, template.pieces))
   }, [piece, template, id])
   return <canvas ref={ref} className="zone-thumb" width={72} height={48} aria-hidden="true" />
@@ -115,9 +114,21 @@ function PartAreas({ panel }: { panel: LayerPanel }) {
   const zones = config.zones ?? {}
   const put = (z: ZoneId, paint: Paint | undefined) => {
     const next = { ...zones }
+    const moved = { ...config.zoneAdjust }
     if (paint) next[zoneKey(panel, z)] = paint
+    else {
+      delete next[zoneKey(panel, z)]
+      delete moved[zoneKey(panel, z)]
+    }
+    set({ zones: next, zoneAdjust: moved })
+  }
+  const NO_MOVE: ZoneAdjust = { x: 0, y: 0, r: 0, s: 1 }
+  const adjOf = (z: ZoneId) => config.zoneAdjust?.[zoneKey(panel, z)] ?? NO_MOVE
+  const move = (z: ZoneId, patch: Partial<ZoneAdjust> | null) => {
+    const next = { ...config.zoneAdjust }
+    if (patch) next[zoneKey(panel, z)] = { ...adjOf(z), ...patch }
     else delete next[zoneKey(panel, z)]
-    set({ zones: next })
+    set({ zoneAdjust: next })
   }
   // A colour that stands out on the part when an area is switched on.
   const partHex = firstColor(panel === 'sidePlate' ? config.rider.plateColor : (config.partColors[panel] ?? config.colors.base))
@@ -150,9 +161,33 @@ function PartAreas({ panel }: { panel: LayerPanel }) {
               {open === z && value && (
                 <div className="zone-edit">
                   <ColorField value={value} onChange={(p) => put(z, p)} label={`${ZONE_LABELS[z]} colour`} />
-                  <button className="chip chip-sm" style={{ marginTop: 10 }} onClick={() => (put(z, undefined), setOpen(null))}>
-                    Remove this area
-                  </button>
+                  {movableZone(z) && (
+                    <div className="sliders" style={{ marginTop: 12 }}>
+                      {(
+                        [
+                          ['Move back / forward', 'x', -0.5, 0.5, 0.01],
+                          ['Move down / up', 'y', -0.5, 0.5, 0.01],
+                          ['Turn', 'r', -90, 90, 1],
+                          ['Size', 's', 0.4, 2, 0.01],
+                        ] as const
+                      ).map(([lab, k, min, max, step]) => (
+                        <label key={k} className="slider">
+                          <span>{lab}</span>
+                          <input type="range" min={min} max={max} step={step} value={adjOf(z)[k]} onChange={(e) => move(z, { [k]: +e.target.value })} />
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <div className="chips" style={{ marginTop: 10 }}>
+                    {config.zoneAdjust?.[zoneKey(panel, z)] && (
+                      <button className="chip chip-sm" onClick={() => move(z, null)}>
+                        Back to the ready-made spot
+                      </button>
+                    )}
+                    <button className="chip chip-sm" onClick={() => (put(z, undefined), setOpen(null))}>
+                      Remove this area
+                    </button>
+                  </div>
                 </div>
               )}
             </li>
@@ -163,10 +198,10 @@ function PartAreas({ panel }: { panel: LayerPanel }) {
   )
 }
 
-// Race number, name and the bike make lettering. They are moved, resized and
+// Race number and name. They are moved, resized and
 // turned on the template like any other item.
 function RiderFields() {
-  const { config, setRider, set } = useConfig()
+  const { config, setRider } = useConfig()
   const r = config.rider
   return (
     <div className="group">
@@ -204,13 +239,7 @@ function RiderFields() {
           <div className="group-label" style={{ marginTop: 16 }}>
             Font
           </div>
-          <div className="chips">
-            {FONT_IDS.map((f) => (
-              <button key={f} className="chip font-chip" aria-pressed={r.font === f} onClick={() => setRider({ font: f })} style={{ font: FONTS[f].css(18) }}>
-                {FONTS[f].label}
-              </button>
-            ))}
-          </div>
+          <FontPicker value={r.font} onChange={(font) => setRider({ font })} sample={r.number || r.name} />
           {r.number && (
             <>
               <div className="group-label" style={{ marginTop: 16 }}>
@@ -229,13 +258,6 @@ function RiderFields() {
           )}
         </>
       )}
-      <button className="toggle" role="switch" aria-checked={config.makeLettering} onClick={() => set({ makeLettering: !config.makeLettering })} style={{ marginTop: 16 }}>
-        <span>
-          <b>Bike make lettering</b>
-          <small style={{ display: 'block', color: 'var(--muted)', fontSize: 13 }}>Large “{bikeById(config.bikeId).make.toUpperCase()}” on the shrouds</small>
-        </span>
-        <span className="track" aria-hidden="true" />
-      </button>
     </div>
   )
 }
@@ -295,17 +317,6 @@ export default function DesignStep() {
   const upd = (patch: Partial<Layer>) => layer && updateLayer(layer.id, patch)
   const label = (l: Layer) =>
     l.kind === 'text' ? `“${l.text}”` : l.kind === 'shape' ? SHAPES[l.shape!].label : l.cover ? 'Photo · whole kit' : l.logo ? `Logo · ${l.name ?? ''}` : `Image · ${l.name ?? ''}`
-
-  const fontChips = useMemo(
-    () =>
-      FONT_IDS.map((f: FontId) => (
-        <button key={f} className="chip font-chip" aria-pressed={layer?.font === f} onClick={() => upd({ font: f })} style={{ font: FONTS[f].css(18) }}>
-          {FONTS[f].label}
-        </button>
-      )),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [layer?.font, layer?.id],
-  )
 
   return (
     <>
@@ -404,7 +415,7 @@ export default function DesignStep() {
               <div className="group-label" style={{ marginTop: 16 }}>
                 Font
               </div>
-              <div className="chips">{fontChips}</div>
+              <FontPicker value={layer.font} onChange={(font) => upd({ font })} sample={layer.text} />
             </>
           )}
           {layer.kind === 'shape' && (

@@ -105,6 +105,8 @@ export interface KitConfig {
   // Ready-made areas switched on, with their colour: "<panel>|<area>" (see
   // lib/zones.ts). Optional so older saved kits still load.
   zones?: Partial<Record<string, Paint>>
+  // How the customer moved, turned or resized those areas.
+  zoneAdjust?: Partial<Record<string, { x: number; y: number; r: number; s: number }>>
   kit: KitId
   finish: FinishId
   material: MaterialId

@@ -42,6 +42,37 @@ const BY_ROLE: Record<Role, ZoneId[]> = {
 }
 
 export const zonesFor = (role: Role): ZoneId[] => BY_ROLE[role] ?? []
+
+// Areas the customer can nudge, turn and resize (edge trim follows the cut
+// line and the number backing follows the number).
+export const movableZone = (id: ZoneId) => id !== 'edge' && id !== 'numberBack'
+
+// The customer's nudge for an area: x and y as a share of the piece's
+// length and height, turn in degrees, size as a factor.
+export interface ZoneAdjust {
+  x: number
+  y: number
+  r: number
+  s: number
+}
+
+// The unit frame moved, turned and resized as the customer set it. The turn
+// is made in the piece's true proportions and on the bike's axes, so an area
+// turns the same way on both sides of the bike.
+function adjusted(F: M6, a: ZoneAdjust | undefined): M6 {
+  if (!a || (!a.x && !a.y && !a.r && a.s === 1)) return F
+  const lu = Math.hypot(F[0], F[1]) || 1
+  const lv = Math.hypot(F[2], F[3]) || 1
+  const O: M6 = [F[0] / lu, F[1] / lu, F[2] / lv, F[3] / lv, F[4], F[5]]
+  const t = (a.r * Math.PI) / 180
+  const c = Math.cos(t) * a.s
+  const sn = Math.sin(t) * a.s
+  // About the piece's centre, then shifted.
+  const cx = lu / 2
+  const cy = lv / 2
+  const A: M6 = [c, sn, -sn, c, cx + a.x * lu - c * cx + sn * cy, cy + a.y * lv - sn * cx - c * cy]
+  return mul6(mul6(O, A), [lu, 0, 0, lv, 0, 0])
+}
 export const zoneKey = (panel: LayerPanel, id: ZoneId) => `${panel}|${id}`
 
 type Pt = [number, number]
@@ -130,7 +161,6 @@ export function drawZones(ctx: CanvasRenderingContext2D, cfg: KitConfig, piece: 
   const F = pieceUnitFrame(piece, toWorld)
   const span = Math.min(Math.hypot(F[0], F[1]), Math.hypot(F[2], F[3]))
   const setM = (m: M6) => ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5])
-  const unit = mul6(base, F)
   ctx.save()
   setM(base)
   ctx.beginPath()
@@ -139,6 +169,7 @@ export function drawZones(ctx: CanvasRenderingContext2D, cfg: KitConfig, piece: 
   ctx.clip()
   for (const id of on) {
     const paint = cfg.zones![zoneKey(key, id)] as Paint
+    const unit = mul6(base, adjusted(F, movableZone(id) ? cfg.zoneAdjust?.[zoneKey(key, id)] : undefined))
     ctx.save()
     if (id === 'edge') {
       setM(base)

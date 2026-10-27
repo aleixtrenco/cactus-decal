@@ -3,7 +3,6 @@
 // side plate and fenders exactly like a printed kit. The left side is drawn
 // mirrored (front on the left) with text kept readable.
 
-import { bikeById, makeInfo } from '../data/bikes'
 import { LOGO_SLOTS, type Palette, type Placement } from '../data/designs'
 import { FONTS, fontById, loadFontFaces, type FontId } from '../data/fonts'
 import { pieceIdOf, type KitConfig, type Layer, type LayerPanel, type RiderPlace, type RiderText } from '../store/config'
@@ -983,7 +982,8 @@ export function riderLayers(cfg: KitConfig, panels: PanelSet, side: Side = 'righ
   const r = cfg.rider
   add('number', 'sidePlate', r.number, r.font, r.numberColor, outlineFor(r.numberColor) === '#101010' ? '#101010' : undefined, (s) => numberBox(panels, seen, s))
   add('name', 'shroud', r.name.toUpperCase(), r.font, r.nameColor, outlineFor(r.nameColor), () => T.name)
-  if (cfg.makeLettering) add('make', 'shroud', makeInfo(bikeById(cfg.bikeId).make).make.toUpperCase(), 'italic', cfg.colors.accent, outlineFor(cfg.colors.accent), () => T.make)
+  // The bike make is no longer written as plain text (brand logos will
+  // replace it), so older saved kits with it switched on don't show it.
   return out
 }
 
@@ -1021,6 +1021,13 @@ function shroudText(panels: PanelSet, seen?: SeenArea) {
   const h = b.y1 - b.y0
   const x = (b.x0 + b.x1) / 2
   return { make: { x, y: b.y0 + h * 0.66, w: w * 0.96, h: h * 0.56 }, name: { x, y: b.y0 + h * 0.17, w: w * 0.8, h: h * 0.28 } }
+}
+
+// The biggest box of this shape on the visible part of the shrouds (for a
+// badge such as our logo on the home page bike).
+export function shroudBadgeBox(panels: PanelSet, aspect: number, seen?: SeenArea) {
+  const b = insideBox(panels.shroud, aspect, seen)
+  return { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, w: b.x1 - b.x0, h: b.y1 - b.y0 }
 }
 
 function tagBox(panels: PanelSet, seen?: SeenArea) {

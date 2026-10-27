@@ -10,7 +10,7 @@
 import opentype from 'opentype.js'
 import s7Url from '@fontsource/saira/files/saira-latin-700-normal.woff?url'
 import s8Url from '@fontsource/saira/files/saira-latin-800-normal.woff?url'
-import { FONTS } from '../data/fonts'
+import { FONTS, fontById, isBuiltinFont } from '../data/fonts'
 import { bikeById, typeLabel } from '../data/bikes'
 import { designById } from '../data/designs'
 import { FINISHES, MATERIALS } from '../data/pricing'
@@ -33,10 +33,17 @@ const fontFiles = new Map<string, string>([
   ['Saira|800', s8Url],
 ])
 const fontCache = new Map<string, Promise<opentype.Font | null>>()
-async function loadFonts(): Promise<Fonts> {
+async function loadFonts(cfg: KitConfig): Promise<Fonts> {
   const out: Fonts = new Map()
+  // Library fonts the customer picked, as well as the bundled ones.
+  const files = new Map(fontFiles)
+  for (const id of [cfg.rider.font, ...cfg.layers.map((l) => l.font)])
+    if (id && !isBuiltinFont(id)) {
+      const d = fontById(id)
+      files.set(`${d.family}|${d.weight}`, d.file)
+    }
   await Promise.all(
-    [...fontFiles].map(async ([key, url]) => {
+    [...files].map(async ([key, url]) => {
       if (!fontCache.has(key))
         fontCache.set(
           key,
@@ -233,7 +240,8 @@ class SvgRecorder {
     if (font) {
       // Outlined lettering: no font needed on the print machine.
       const d = font.getPath(t, 0, 0, size).toPathData(3)
-      const tm = italic ? mul(at, [1, 0, -ITALIC_SKEW, 1, 0, 0]) : at
+      // Slanted only when the font file itself is upright.
+      const tm = italic && !font.tables.post?.italicAngle ? mul(at, [1, 0, -ITALIC_SKEW, 1, 0, 0]) : at
       this.out.push(`<path d="${d}" transform="${mstr(tm)}" ${paint}${this.alpha()}/>`)
       return
     }
@@ -282,7 +290,7 @@ const polyD = (pts: [number, number][]) => pts.map(([x, y], i) => `${i ? 'L' : '
 // `info: false` leaves out the order details under the pieces (for showing
 // the design to the customer).
 export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate, { info: withInfo = true } = {}): Promise<PrintFile> {
-  const f = await loadFonts()
+  const f = await loadFonts(cfg)
   const bike = bikeById(cfg.bikeId)
   const t = template ?? builtInTemplate(cfg)
   const hostRole = (p: TemplatePiece) => (p.parent !== undefined ? (t.pieces.find((q) => q.id === p.parent) ?? p) : p).role

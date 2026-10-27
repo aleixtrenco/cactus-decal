@@ -3183,3 +3183,45 @@ img.render {
 .zone-edit {
   padding: 4px 12px 14px;
 }
+.font-library {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(242, 240, 232, 0.12);
+  border-radius: 14px;
+}
+.font-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.font-pick {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(242, 240, 232, 0.12);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+.font-pick span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.font-pick small {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.font-pick:hover {
+  background: rgba(242, 240, 232, 0.05);
+}
+.font-pick[aria-pressed='true'] {
+  border-color: var(--cactus);
+}

@@ -9,7 +9,8 @@ import { FINISHES, formatAED, KIT_PARTS, KIT_PRICES, PLATES_KIT, PLATES_PARTS, t
 import { FAQ } from '../data/site'
 import { defaultConfig } from '../store/config'
 
-// The home page shows the real Honda CRF 450 model in its stock look.
+// The home page shows the real Honda CRF 450 model in its stock look, with
+// our logo on the shrouds.
 const HERO_BIKE = 'crf-25'
 const HERO_NAME = 'Honda CRF450R'
 
@@ -73,7 +74,7 @@ function Hero() {
 
         <div className="hero-stage">
           <div className="stage-fill">
-            <LazyStage cfg={cfg} view="hero" autoRotate={!reduce} interactive={finePointer} stock />
+            <LazyStage cfg={cfg} view="hero" autoRotate={!reduce} interactive={finePointer} stock badge={asset('logo.png')} />
           </div>
           <div className="now-showing" aria-live="polite">
             <span className="dot" aria-hidden="true" />
@@ -262,7 +263,7 @@ export default function Home() {
           <div className="container promo">
             <Reveal>
               <div className="promo-visual">
-                <LazyStage cfg={promoCfg} view="front" autoRotate interactive={false} stock />
+                <LazyStage cfg={promoCfg} view="front" autoRotate interactive={false} stock badge={asset('logo.png')} />
               </div>
             </Reveal>
             <div>
