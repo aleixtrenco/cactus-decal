@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import { drawPieceLayer, drawUpright, ensureAssets, levelAngle, fillPieceSolid, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFill, pieceFrame, riderKeyOf, riderLayers, riderPlaceOf, riderSideOf, sheetWidth, WORLD, type Side } from '../lib/graphics'
+import { drawPieceLayer, drawUpright, ensureAssets, levelAngle, fillPieceSolid, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFill, pieceFrame, riderId, riderKeyOf, riderLayers, riderPlaceOf, riderSideOf, sheetWidth, WORLD, type Side } from '../lib/graphics'
 import { useSeen } from '../lib/seen'
 import { apply, builtInTemplate, invert, mul6, panelKey, panelPieces, panelsFor, pieceToWorld, useTemplates, type M6, type Role, type TemplatePiece } from '../lib/templates'
 import { firstColor, paintCss } from '../lib/paint'
 import { DESIGN_STEP, pieceIdOf, platesOnly, useConfig, type Layer, type LayerPanel, type TextPlace } from '../store/config'
 import { panelName } from '../lib/layers'
+import { drawZones } from '../lib/zones'
 import Icon from './Icon'
 
 // The main design surface: the model's real print template (the SVG cut
@@ -223,6 +224,7 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
           const k = Math.min(p.bbox.w, p.bbox.h * 1.1) / (S * 0.82)
           setM(mul6(V, [k, 0, 0, k, p.bbox.x + p.bbox.w / 2 - (S / 2) * k, p.bbox.y + p.bbox.h / 2 - (S / 2) * k]))
           ctx.drawImage(sheets.plate, 0, 0)
+          drawZones(ctx, config, p, panelKey(host, template.pieces), V, toWorld)
         } else {
           const side: Side = p.side === 'left' ? 'left' : 'right'
           const lettered = LETTERED.includes(host.role)
@@ -232,6 +234,11 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
           if (solid) fillPieceSolid(ctx, config, p, solid, V)
           setM(mul6(mul6(V, invert(toWorld)), sheetToWorld(side, SW)))
           if (!solid) ctx.drawImage(sheets.plain[side], 0, 0)
+          // Ready-made coloured areas, under the layers and lettering.
+          if (p === host) {
+            const num = rider[side].find((l) => l.id === riderId('number', side))
+            drawZones(ctx, config, p, panelKey(host, template.pieces), V, toWorld, num && { layer: num, panels, side })
+          }
           if (lettered) {
             // This panel's own layers, then the number and lettering.
             const own = layersOf(host.role, side)

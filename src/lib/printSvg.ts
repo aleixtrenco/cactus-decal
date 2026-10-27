@@ -15,7 +15,8 @@ import { bikeById, typeLabel } from '../data/bikes'
 import { designById } from '../data/designs'
 import { FINISHES, MATERIALS } from '../data/pricing'
 import { pieceIdOf, platesOnly, type KitConfig, type LayerPanel } from '../store/config'
-import { drawPieceLayer, drawUpright, fillPieceSolid, paintFrontPlate, paintSheet, pieceFill, riderLayers, WORLD, type Side } from './graphics'
+import { drawPieceLayer, drawUpright, fillPieceSolid, paintFrontPlate, paintSheet, pieceFill, riderId, riderLayers, WORLD, type Side } from './graphics'
+import { drawZones } from './zones'
 import { seenFor } from './seen'
 import { paintStyle } from './paint'
 import { builtInTemplate, invert, mount, panelKey, pieceElements, pieceToWorld, panelsFor, toRoot, type BikeTemplate, type M6, type Role, type TemplatePiece } from './templates'
@@ -357,7 +358,8 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate, { i
       const k = Math.min(p.bbox.w, p.bbox.h * 1.1) / (S * 0.82)
       const mx = p.bbox.x + p.bbox.w / 2 - (S / 2) * k
       const my = p.bbox.y + p.bbox.h / 2 - (S / 2) * k
-      printed.push(`<g id="piece-${p.id}-front-plate" mask="url(#m${p.id})"><g transform="${mstr([k, 0, 0, k, mx, my])}">${record(f, S, S, (c) => paintFrontPlate(c, cfg))}</g>${own(p)}</g>`)
+      const areas = record(f, vw, vh, (c) => drawZones(c.getContext('2d')!, cfg, p, panelKey(p, t.pieces), [1, 0, 0, 1, 0, 0], pieceToWorld(p, t.pieces)))
+      printed.push(`<g id="piece-${p.id}-front-plate" mask="url(#m${p.id})"><g transform="${mstr([k, 0, 0, k, mx, my])}">${record(f, S, S, (c) => paintFrontPlate(c, cfg))}</g>${areas}${own(p)}</g>`)
       continue
     }
     const side: Side = p.side === 'left' ? 'left' : 'right'
@@ -376,11 +378,16 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate, { i
           fillPieceSolid(ctx, cfg, p, solid, [1, 0, 0, 1, 0, 0])
         })
       : ''
-    const refs = [solid ? '' : `#art-${side}`, ...(lettered ? [panelLayers(side, host.role), `#text-${side}`] : [])].filter(Boolean)
+    const refs = (lettered ? [panelLayers(side, host.role), `#text-${side}`] : []).filter(Boolean)
+    const useRef = (ref: string) => `<use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/>`
+    // Ready-made coloured areas, between the design and the layers/lettering.
+    const num = lettering[side].find((l) => l.id === riderId('number', side))
+    const areas =
+      p === host ? record(f, vw, vh, (c) => drawZones(c.getContext('2d')!, cfg, p, panelKey(host, t.pieces), [1, 0, 0, 1, 0, 0], pieceToWorld(p, t.pieces), num && { layer: num, panels, side })) : ''
     // The number and lettering, upright on the piece in template units.
     const mine = lettered ? lettering[side].filter((l) => l.panel === host.role) : []
     const letters = mine.length ? record(f, vw, vh, (c) => mine.forEach((l) => drawUpright(c.getContext('2d')!, l, panels, pieceToWorld(p, t.pieces), [1, 0, 0, 1, 0, 0], side))) : ''
-    const use = refs.map((ref) => `<use href="${ref}" xlink:href="${ref}" transform="${mstr(m)}"/>`).join('') + letters
+    const use = (solid ? '' : useRef(`#art-${side}`)) + areas + refs.map(useRef).join('') + letters
     printed.push(`<g id="piece-${p.id}-${p.role}" mask="url(#m${p.id})">${fill}${use}${own(p)}</g>`)
   }
   const cut = pieces.map((p) => paint(shapeOf(p), `fill="none" stroke="#ec008c" stroke-width="${n(vw * 0.0004)}"`)).join('\n')

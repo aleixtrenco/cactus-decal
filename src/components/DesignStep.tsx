@@ -5,8 +5,9 @@ import { FONTS, FONT_IDS, type FontId } from '../data/fonts'
 import { formatAED, NEON_SURCHARGE } from '../data/pricing'
 import { frontPlateColor, loadImage } from '../lib/graphics'
 import { newId, panelName, panelsAllowed, piecePanels, prepareImage } from '../lib/layers'
-import type { Paint } from '../lib/paint'
-import { useTemplates } from '../lib/templates'
+import { firstColor, paintCss, type Paint } from '../lib/paint'
+import { pieceToWorld, useTemplates, type BikeTemplate, type TemplatePiece } from '../lib/templates'
+import { drawZones, zoneKey, zonesFor, ZONE_LABELS, type ZoneId } from '../lib/zones'
 import { SHAPES, SHAPE_IDS } from '../lib/shapes2d'
 import { platesOnly, useConfig, type Layer, type LayerPanel, type ShapeId } from '../store/config'
 import ColorField from './ColorField'
@@ -70,6 +71,94 @@ function PartColour({ panel }: { panel: LayerPanel }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// A small picture of a piece with one of its areas highlighted.
+function ZoneThumb({ piece, template, id }: { piece: TemplatePiece; template: BikeTemplate; id: ZoneId }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const c = ref.current!
+    const ctx = c.getContext('2d')!
+    const { x, y, w, h } = piece.bbox
+    const k = Math.min((c.width - 6) / w, (c.height - 6) / h)
+    const base: [number, number, number, number, number, number] = [k, 0, 0, k, (c.width - w * k) / 2 - x * k, (c.height - h * k) / 2 - y * k]
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, c.width, c.height)
+    ctx.setTransform(...base)
+    ctx.beginPath()
+    piece.outline.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)))
+    ctx.closePath()
+    ctx.fillStyle = '#d9d7cf'
+    ctx.fill()
+    const cfg = { ...useConfig.getState().config, zones: { [zoneKey('shroud', id)]: '#8cd63a' } }
+    drawZones(ctx, cfg, piece, 'shroud', base, pieceToWorld(piece, template.pieces))
+  }, [piece, template, id])
+  return <canvas ref={ref} className="zone-thumb" width={72} height={48} aria-hidden="true" />
+}
+
+// Ready-made areas of the part being designed, shaped from that model's own
+// cut outline: switch one on and pick its colour.
+function PartAreas({ panel }: { panel: LayerPanel }) {
+  const { config, set } = useConfig()
+  const template = useTemplates((s) => s.templates[config.bikeId])
+  const [open, setOpen] = useState<ZoneId | null>(null)
+  if (!template || panel === 'kit') return null
+  const id = panel.startsWith('p') ? Number(panel.slice(1)) : NaN
+  const sample = Number.isNaN(id)
+    ? (template.pieces.find((p) => p.role === panel && p.parent === undefined && p.side === 'right') ?? template.pieces.find((p) => p.role === panel && p.parent === undefined))
+    : template.pieces.find((p) => p.id === id)
+  if (!sample) return null
+  const ids = zonesFor(sample.role)
+  if (!ids.length) return null
+  const zones = config.zones ?? {}
+  const put = (z: ZoneId, paint: Paint | undefined) => {
+    const next = { ...zones }
+    if (paint) next[zoneKey(panel, z)] = paint
+    else delete next[zoneKey(panel, z)]
+    set({ zones: next })
+  }
+  // A colour that stands out on the part when an area is switched on.
+  const partHex = firstColor(panel === 'sidePlate' ? config.rider.plateColor : (config.partColors[panel] ?? config.colors.base))
+  const light = parseInt(partHex.slice(1, 3), 16) * 0.3 + parseInt(partHex.slice(3, 5), 16) * 0.59 + parseInt(partHex.slice(5, 7), 16) * 0.11 > 140
+  return (
+    <div className="group">
+      <div className="group-label">
+        Ready-made areas <span>Shaped to your model</span>
+      </div>
+      <ul className="zone-list">
+        {ids.map((z) => {
+          const value = zones[zoneKey(panel, z)]
+          return (
+            <li key={z} className={value ? 'on' : ''}>
+              <button
+                className="zone-row"
+                aria-expanded={open === z}
+                onClick={() => {
+                  if (!value) put(z, light ? '#101010' : '#f4f4f2')
+                  setOpen(open === z ? null : z)
+                }}
+              >
+                <ZoneThumb piece={sample} template={template} id={z} />
+                <span>
+                  <b>{ZONE_LABELS[z]}</b>
+                  <small>{value ? swatchName(value) : 'Off · tap to add'}</small>
+                </span>
+                <i className="zone-sw" style={value ? { background: paintCss(value) } : undefined} aria-hidden="true" />
+              </button>
+              {open === z && value && (
+                <div className="zone-edit">
+                  <ColorField value={value} onChange={(p) => put(z, p)} label={`${ZONE_LABELS[z]} colour`} />
+                  <button className="chip chip-sm" style={{ marginTop: 10 }} onClick={() => (put(z, undefined), setOpen(null))}>
+                    Remove this area
+                  </button>
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }
@@ -234,6 +323,7 @@ export default function DesignStep() {
       </div>
 
       <PartColour panel={panel} />
+      <PartAreas panel={panel} />
 
       <div className="group">
         <div className="group-label">Add to the {name(panel).toLowerCase()}</div>

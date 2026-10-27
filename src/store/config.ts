@@ -102,6 +102,9 @@ export interface KitConfig {
   // Base colour per part (main panels or single pieces "p<id>"); the plates
   // use the rider's plate colours, the whole kit colors.base.
   partColors: Partial<Record<LayerPanel, Paint>>
+  // Ready-made areas switched on, with their colour: "<panel>|<area>" (see
+  // lib/zones.ts). Optional so older saved kits still load.
+  zones?: Partial<Record<string, Paint>>
   kit: KitId
   finish: FinishId
   material: MaterialId
@@ -124,6 +127,7 @@ export const defaultConfig = (): KitConfig => {
     logos: [],
     layers: [],
     partColors: {},
+    zones: {},
     kit: 'full',
     finish: 'gloss',
     material: 'standard',
@@ -136,7 +140,7 @@ export const plasticsHex = (c: KitConfig) =>
   c.plastics === 'white' ? '#f4f4f2' : c.plastics === 'black' ? '#141414' : makeInfo(bikeById(c.bikeId).make).oem
 
 export const usesNeon = (c: KitConfig) =>
-  [...Object.values(c.colors), ...Object.values(c.partColors ?? {}), c.rider.numberColor, c.rider.plateColor, c.rider.frontPlateColor ?? '', c.rider.nameColor, ...c.layers.map((l) => l.fill)].flatMap(paintColors).some((h) => NEON_HEXES.has(h))
+  [...Object.values(c.colors), ...Object.values(c.partColors ?? {}), ...Object.values(c.zones ?? {}), c.rider.numberColor, c.rider.plateColor, c.rider.frontPlateColor ?? '', c.rider.nameColor, ...c.layers.map((l) => l.fill)].flatMap(paintColors).some((h) => NEON_HEXES.has(h))
 
 export const priceInput = (c: KitConfig): PriceInput => ({
   kit: c.kit,

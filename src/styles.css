@@ -3126,3 +3126,60 @@ img.render {
   color: #55574d;
   font-size: 14px;
 }
+
+.zone-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.zone-list li {
+  border: 1px solid var(--line, rgba(242, 240, 232, 0.12));
+  border-radius: 14px;
+  overflow: hidden;
+}
+.zone-list li.on {
+  border-color: rgba(140, 214, 58, 0.55);
+}
+.zone-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.zone-row:hover {
+  background: rgba(242, 240, 232, 0.05);
+}
+.zone-row span {
+  margin-right: auto;
+  display: grid;
+}
+.zone-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.zone-thumb {
+  width: 72px;
+  height: 48px;
+  border-radius: 8px;
+  background: rgba(242, 240, 232, 0.06);
+}
+.zone-sw {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px dashed rgba(242, 240, 232, 0.35);
+}
+.zone-list li.on .zone-sw {
+  border: 1px solid rgba(242, 240, 232, 0.4);
+}
+.zone-edit {
+  padding: 4px 12px 14px;
+}

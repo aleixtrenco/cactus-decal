@@ -15,7 +15,8 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
-import { drawLayer, drawPieceLayer, ensureAssets, fillPieceSolid, frontPlateColor, paintDecalSheet, paintFrontPlate, paintSheet, pieceFill, riderLayers, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
+import { drawLayer, drawPieceLayer, ensureAssets, fillPieceSolid, frontPlateColor, paintDecalSheet, paintFrontPlate, paintSheet, pieceFill, riderId, riderLayers, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
+import { drawZones } from '../lib/zones'
 import { useSeen } from '../lib/seen'
 import { paintStyle } from '../lib/paint'
 import { FRONT_WHEEL } from '../lib/shapes'
@@ -335,9 +336,13 @@ function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: 
     const c = P.sheets[side]
     for (const p of t.pieces) {
       if (p.side !== side || !onModel(p, t.pieces) || (roles && !roles.includes(p.role))) continue
-      const base = mul6(worldToSheet(side, c.width), pieceToWorld(p, t.pieces))
+      const toWorld = pieceToWorld(p, t.pieces)
+      const base = mul6(worldToSheet(side, c.width), toWorld)
       const solid = pieceFill(cfg, p, panelKey(p, t.pieces))
       if (solid) fillPieceSolid(c.getContext('2d')!, cfg, p, solid, base)
+      // Ready-made coloured areas, under the layers and lettering.
+      const num = lettering[side].find((l) => l.id === riderId('number', side))
+      drawZones(c.getContext('2d')!, cfg, p, panelKey(p, t.pieces), base, toWorld, num && { layer: num, panels, side })
       if (LETTERED.includes(p.role)) {
         for (const what of [p.role, 'text'] as const) {
           const o = overlay(side, what)
@@ -409,6 +414,7 @@ function paintFront(P: Projector, cfg: KitConfig, t: BikeTemplate & { model: Mod
       if (solid) fillPieceSolid(ctx, cfg, p, solid, S)
       else fillPiece(c, p, S, P.sheets.art, mul6(mul6(S, invert(pieceToWorld(p, t.pieces))), [k, 0, 0, -k, WORLD.x0, WORLD.y1]))
     }
+    drawZones(ctx, cfg, p, panelKey(p, t.pieces), S, pieceToWorld(p, t.pieces))
     paintPieceLayers(c, cfg, t, p, S)
   }
 }
@@ -441,6 +447,7 @@ function paintFender(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: Retu
     const solid = pieceFill(cfg, p, panelKey(p, t.pieces))
     if (solid) fillPieceSolid(ctx, cfg, p, solid, S)
     else fillPiece(c, p, S, P.sheets.art, toArt)
+    drawZones(ctx, cfg, p, panelKey(p, t.pieces), S, pieceToWorld(p, t.pieces))
     if (LETTERED.includes(p.role))
       for (const what of [p.role, 'text'] as const) {
         const o = overlay('right', what)
