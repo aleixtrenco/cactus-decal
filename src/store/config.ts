@@ -65,6 +65,9 @@ export interface Layer {
   cover?: boolean
   // Image only: an uploaded logo (listed in the Logos step).
   logo?: boolean
+  // Image only: one piece of a design the customer uploaded, fitted into the
+  // template piece of `panel` ("p<id>") by lib/importDesign.ts.
+  fit?: boolean
 }
 
 export type RiderText = 'number' | 'name' | 'make'

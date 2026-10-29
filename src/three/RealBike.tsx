@@ -15,7 +15,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { FinishId } from '../data/pricing'
-import { drawLayer, drawPieceLayer, ensureAssets, loadImage, shroudBadgeBox, fillPieceSolid, frontPlateColor, paintDecalSheet, paintFrontPlate, paintSheet, pieceFill, riderId, riderLayers, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
+import { drawFitArt, drawLayer, drawPieceLayer, ensureAssets, loadImage, shroudBadgeBox, fillPieceSolid, frontPlateColor, paintDecalSheet, paintFrontPlate, paintSheet, pieceFill, riderId, riderLayers, sheetWidth, WORLD, type SeenArea, type Side } from '../lib/graphics'
 import { drawZones } from '../lib/zones'
 import { useSeen } from '../lib/seen'
 import { paintStyle } from '../lib/paint'
@@ -268,7 +268,7 @@ function findFender(root: THREE.Object3D) {
 function paintPieceLayers(c: HTMLCanvasElement, cfg: KitConfig, t: BikeTemplate, piece: TemplatePiece, base: M6) {
   const host = piece.parent !== undefined ? (t.pieces.find((q) => q.id === piece.parent) ?? piece) : piece
   const key = panelKey(host, t.pieces)
-  const ls = cfg.layers.filter((l) => l.panel === key && pieceIdOf(l.panel) !== null && !l.cover)
+  const ls = cfg.layers.filter((l) => l.panel === key && pieceIdOf(l.panel) !== null && !l.cover && !l.fit)
   if (!ls.length) return
   const ctx = c.getContext('2d')!
   ctx.save()
@@ -343,6 +343,7 @@ function paintSidePieces(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: 
       if (solid) fillPieceSolid(c.getContext('2d')!, cfg, p, solid, base)
       // Ready-made coloured areas, under the layers and lettering.
       const num = lettering[side].find((l) => l.id === riderId('number', side))
+      drawFitArt(c.getContext('2d')!, cfg, p, base)
       drawZones(c.getContext('2d')!, cfg, p, panelKey(p, t.pieces), base, toWorld, num && { layer: num, panels, side })
       if (LETTERED.includes(p.role)) {
         for (const what of [p.role, 'text'] as const) {
@@ -455,6 +456,7 @@ function paintFront(P: Projector, cfg: KitConfig, t: BikeTemplate & { model: Mod
       if (solid) fillPieceSolid(ctx, cfg, p, solid, S)
       else fillPiece(c, p, S, P.sheets.art, mul6(mul6(S, invert(pieceToWorld(p, t.pieces))), [k, 0, 0, -k, WORLD.x0, WORLD.y1]))
     }
+    drawFitArt(ctx, cfg, p, S)
     drawZones(ctx, cfg, p, panelKey(p, t.pieces), S, pieceToWorld(p, t.pieces))
     paintPieceLayers(c, cfg, t, p, S)
   }
@@ -488,6 +490,7 @@ function paintFender(P: Projector, cfg: KitConfig, t: BikeTemplate, panels: Retu
     const solid = pieceFill(cfg, p, panelKey(p, t.pieces))
     if (solid) fillPieceSolid(ctx, cfg, p, solid, S)
     else fillPiece(c, p, S, P.sheets.art, toArt)
+    drawFitArt(ctx, cfg, p, S)
     drawZones(ctx, cfg, p, panelKey(p, t.pieces), S, pieceToWorld(p, t.pieces))
     if (LETTERED.includes(p.role))
       for (const what of [p.role, 'text'] as const) {

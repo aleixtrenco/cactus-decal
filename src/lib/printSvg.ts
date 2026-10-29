@@ -15,7 +15,7 @@ import { bikeById, typeLabel } from '../data/bikes'
 import { designById } from '../data/designs'
 import { FINISHES, MATERIALS } from '../data/pricing'
 import { pieceIdOf, platesOnly, type KitConfig, type LayerPanel } from '../store/config'
-import { drawPieceLayer, drawUpright, fillPieceSolid, paintFrontPlate, paintSheet, pieceFill, riderId, riderLayers, WORLD, type Side } from './graphics'
+import { drawFitArt, drawPieceLayer, drawUpright, fillPieceSolid, paintFrontPlate, paintSheet, pieceFill, riderId, riderLayers, WORLD, type Side } from './graphics'
 import { drawZones } from './zones'
 import { seenFor } from './seen'
 import { paintStyle } from './paint'
@@ -355,7 +355,7 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate, { i
   const own = (p: TemplatePiece) => {
     const host = p.parent !== undefined ? (t.pieces.find((q) => q.id === p.parent) ?? p) : p
     const key = panelKey(host, t.pieces)
-    const ls = cfg.layers.filter((l) => l.panel === key && pieceIdOf(l.panel) !== null && !l.cover)
+    const ls = cfg.layers.filter((l) => l.panel === key && pieceIdOf(l.panel) !== null && !l.cover && !l.fit)
     return ls.length ? record(f, vw, vh, (c) => ls.forEach((l) => drawPieceLayer(c.getContext('2d')!, l, host.bbox, [1, 0, 0, 1, 0, 0], key !== `p${host.id}`))) : ''
   }
   for (const p of pieces) {
@@ -366,7 +366,10 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate, { i
       const k = Math.min(p.bbox.w, p.bbox.h * 1.1) / (S * 0.82)
       const mx = p.bbox.x + p.bbox.w / 2 - (S / 2) * k
       const my = p.bbox.y + p.bbox.h / 2 - (S / 2) * k
-      const areas = record(f, vw, vh, (c) => drawZones(c.getContext('2d')!, cfg, p, panelKey(p, t.pieces), [1, 0, 0, 1, 0, 0], pieceToWorld(p, t.pieces)))
+      const areas = record(f, vw, vh, (c) => {
+        drawFitArt(c.getContext('2d')!, cfg, p, [1, 0, 0, 1, 0, 0])
+        drawZones(c.getContext('2d')!, cfg, p, panelKey(p, t.pieces), [1, 0, 0, 1, 0, 0], pieceToWorld(p, t.pieces))
+      })
       printed.push(`<g id="piece-${p.id}-front-plate" mask="url(#m${p.id})"><g transform="${mstr([k, 0, 0, k, mx, my])}">${record(f, S, S, (c) => paintFrontPlate(c, cfg))}</g>${areas}${own(p)}</g>`)
       continue
     }
@@ -391,7 +394,12 @@ export async function buildPrintSvg(cfg: KitConfig, template?: BikeTemplate, { i
     // Ready-made coloured areas, between the design and the layers/lettering.
     const num = lettering[side].find((l) => l.id === riderId('number', side))
     const areas =
-      p === host ? record(f, vw, vh, (c) => drawZones(c.getContext('2d')!, cfg, p, panelKey(host, t.pieces), [1, 0, 0, 1, 0, 0], pieceToWorld(p, t.pieces), num && { layer: num, panels, side })) : ''
+      p === host
+        ? record(f, vw, vh, (c) => {
+            drawFitArt(c.getContext('2d')!, cfg, p, [1, 0, 0, 1, 0, 0])
+            drawZones(c.getContext('2d')!, cfg, p, panelKey(host, t.pieces), [1, 0, 0, 1, 0, 0], pieceToWorld(p, t.pieces), num && { layer: num, panels, side })
+          })
+        : ''
     // The number and lettering, upright on the piece in template units.
     const mine = lettered ? lettering[side].filter((l) => l.panel === host.role) : []
     const letters = mine.length ? record(f, vw, vh, (c) => mine.forEach((l) => drawUpright(c.getContext('2d')!, l, panels, pieceToWorld(p, t.pieces), [1, 0, 0, 1, 0, 0], side))) : ''

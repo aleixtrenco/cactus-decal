@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
-import { drawPieceLayer, drawUpright, ensureAssets, levelAngle, fillPieceSolid, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFill, pieceFrame, riderId, riderKeyOf, riderLayers, riderPlaceOf, riderSideOf, sheetWidth, WORLD, type Side } from '../lib/graphics'
+import { drawFitArt, drawPieceLayer, drawUpright, ensureAssets, levelAngle, fillPieceSolid, layerAspect, layerBox, paintFrontPlate, paintSheet, pieceFill, pieceFrame, riderId, riderKeyOf, riderLayers, riderPlaceOf, riderSideOf, sheetWidth, WORLD, type Side } from '../lib/graphics'
 import { useSeen } from '../lib/seen'
 import { apply, builtInTemplate, invert, mul6, panelKey, panelPieces, panelsFor, pieceToWorld, useTemplates, type M6, type Role, type TemplatePiece } from '../lib/templates'
 import { firstColor, paintCss } from '../lib/paint'
@@ -224,6 +224,7 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
           const k = Math.min(p.bbox.w, p.bbox.h * 1.1) / (S * 0.82)
           setM(mul6(V, [k, 0, 0, k, p.bbox.x + p.bbox.w / 2 - (S / 2) * k, p.bbox.y + p.bbox.h / 2 - (S / 2) * k]))
           ctx.drawImage(sheets.plate, 0, 0)
+          drawFitArt(ctx, config, p, V)
           drawZones(ctx, config, p, panelKey(host, template.pieces), V, toWorld)
         } else {
           const side: Side = p.side === 'left' ? 'left' : 'right'
@@ -237,6 +238,7 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
           // Ready-made coloured areas, under the layers and lettering.
           if (p === host) {
             const num = rider[side].find((l) => l.id === riderId('number', side))
+            drawFitArt(ctx, config, p, V)
             drawZones(ctx, config, p, panelKey(host, template.pieces), V, toWorld, num && { layer: num, panels, side })
           }
           if (lettered) {
@@ -249,7 +251,7 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
         }
         // Anything designed on this piece itself.
         const key = panelKey(host, template.pieces)
-        for (const l of config.layers) if (l.panel === key && pieceIdOf(l.panel) !== null && !l.cover) drawPieceLayer(ctx, l, host.bbox, V, key !== `p${host.id}`)
+        for (const l of config.layers) if (l.panel === key && pieceIdOf(l.panel) !== null && !l.cover && !l.fit) drawPieceLayer(ctx, l, host.bbox, V, key !== `p${host.id}`)
         ctx.restore()
       }
       // Cut lines on top; the panel being designed stands out, the rest dims.
@@ -292,7 +294,7 @@ export default function TemplateDesigner({ interactive = true }: { interactive?:
   // move and resize the same way.
   // One of each per side, adjusted independently.
   const lettering = [...riderLayers(config, panels, 'right', seen), ...riderLayers(config, panels, 'left', seen)].filter((l) => !plates || l.panel === 'sidePlate')
-  const movable = [...config.layers.filter((l) => !(l.kind === 'image' && l.cover)), ...lettering]
+  const movable = [...config.layers.filter((l) => !(l.kind === 'image' && l.cover) && !l.fit), ...lettering]
   const updateLayer = (id: string, patch: Partial<Layer>) => {
     const key = riderKeyOf(id)
     if (!key) return updateOwn(id, patch)

@@ -3,7 +3,7 @@
 Website and live 3D graphics configurator for Cactus Decal Lab, Dubai.
 
 - **Home page**: hero with the live 3D Honda CRF 450 in its stock look with the Cactus Decal logo on the shrouds (`public/logo.png`), customer builds, pricing, finishes, FAQ.
-- **Configurator** (`/configurator`): 4 steps, bike → design → kit & finish → review & pay. Every kit starts blank; on the design step the customer clicks a piece of the template to colour it, switch on its ready-made areas (and nudge, turn or resize them), and add shapes, text, logos and photos, plus their number and name. The bike make is no longer written as text (brand logo files will replace it). Live 3D preview, 2D proof, instant AED price, save/share link.
+- **Configurator** (`/configurator`): 4 steps, bike → design → kit & finish → review & pay. Every kit starts blank; on the design step the customer clicks a piece of the template to colour it, switch on its ready-made areas (and nudge, turn or resize them), and add shapes, text, logos and photos, plus their number and name. The bike make is no longer written as text (brand logo files will replace it). Customers who already have a kit as a picture can upload its flat print layout (PNG/JPG): each piece is found, matched to the same piece of their model and fitted into its cut outline (`src/lib/importDesign.ts`). Live 3D preview, 2D proof, instant AED price, save/share link.
 - **Checkout**: Stripe Checkout in AED (card, Apple Pay, Google Pay).
 - **Team area** (`/admin`, password protected): upload bike templates, see orders, download print files for Illustrator.
 

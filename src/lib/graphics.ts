@@ -1341,6 +1341,33 @@ export function pieceFrame(l: Layer, bbox: { x: number; y: number; w: number; h:
 // Draws a piece-panel layer. `base` maps template units to the context.
 // `mirror` draws it on the matching piece from the other side of the bike:
 // the layout and shapes mirror, text and photos stay readable.
+// A piece of an uploaded design, fitted into this template piece: stretched
+// to the piece's size (by at most 40% more one way than the other, then
+// covering it), centred and kept inside its outline. `base` maps template
+// units to the context.
+export function drawFitArt(ctx: CanvasRenderingContext2D, cfg: KitConfig, piece: TemplatePiece, base: M6) {
+  const ls = cfg.layers.filter((l) => l.fit && l.panel === `p${piece.id}` && l.src)
+  if (!ls.length) return
+  ctx.save()
+  ctx.setTransform(base[0], base[1], base[2], base[3], base[4], base[5])
+  ctx.beginPath()
+  piece.outline.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)))
+  ctx.closePath()
+  ctx.clip()
+  for (const l of ls) {
+    const img = imageCache.get(l.src!)
+    if (!img?.complete || !img.naturalWidth) continue
+    const { x, y, w, h } = piece.bbox
+    let sx = w / img.naturalWidth
+    let sy = h / img.naturalHeight
+    if (sx > sy * 1.4) sy = sx / 1.4
+    if (sy > sx * 1.4) sx = sy / 1.4
+    ctx.globalAlpha = l.opacity
+    ctx.drawImage(img, x + w / 2 - (img.naturalWidth * sx) / 2, y + h / 2 - (img.naturalHeight * sy) / 2, img.naturalWidth * sx, img.naturalHeight * sy)
+  }
+  ctx.restore()
+}
+
 export function drawPieceLayer(ctx: CanvasRenderingContext2D, l: Layer, bbox: { x: number; y: number; w: number; h: number }, base: M6, mirror = false) {
   const f = pieceFrame(mirror ? { ...l, x: 1 - l.x } : l, bbox)
   const k = mirror ? -1 : 1

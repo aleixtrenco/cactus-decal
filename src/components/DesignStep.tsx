@@ -5,7 +5,7 @@ import { formatAED, NEON_SURCHARGE } from '../data/pricing'
 import { frontPlateColor, loadImage } from '../lib/graphics'
 import { newId, panelName, panelsAllowed, piecePanels, prepareImage } from '../lib/layers'
 import { firstColor, paintCss, type Paint } from '../lib/paint'
-import { pieceToWorld, useTemplates, type BikeTemplate, type TemplatePiece } from '../lib/templates'
+import { panelKey, pieceToWorld, useTemplates, type BikeTemplate, type TemplatePiece } from '../lib/templates'
 import { drawZones, movableZone, zoneKey, zonesFor, ZONE_LABELS, type ZoneAdjust, type ZoneId } from '../lib/zones'
 import { SHAPES, SHAPE_IDS } from '../lib/shapes2d'
 import { platesOnly, useConfig, type Layer, type LayerPanel, type ShapeId } from '../store/config'
@@ -198,6 +198,66 @@ function PartAreas({ panel }: { panel: LayerPanel }) {
   )
 }
 
+// Upload a kit the customer already has (a flat print layout as PNG/JPG):
+// every piece is fitted onto the same piece of this bike's template.
+function ImportDesign() {
+  const { config, set } = useConfig()
+  const template = useTemplates((s) => s.templates[config.bikeId])
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  const input = useRef<HTMLInputElement>(null)
+  const fitted = config.layers.filter((l) => l.fit)
+  if (!template) return null
+  const pick = async (f: File | undefined) => {
+    if (input.current) input.current.value = ''
+    if (!f) return
+    if (!/^image\/(png|jpeg|webp)$/.test(f.type)) return setNote('Please choose a PNG, JPG or WebP picture of your kit.')
+    if (f.size > 25 * 1024 * 1024) return setNote('That file is over 25 MB. Export a smaller copy and try again.')
+    setBusy(true)
+    setNote(null)
+    try {
+      const { importDesign } = await import('../lib/importDesign')
+      const r = await importDesign(f, template)
+      if (r.matched < 2) {
+        setNote(
+          r.found < 3
+            ? 'We could not find separate kit pieces in that picture. Upload the flat print layout of your kit (pieces on a white or transparent background), or add it as a photo below.'
+            : 'We found the pieces but could not match them to this bike. Try a layout with the bike’s right side on the left and the left side on the right.',
+        )
+        return
+      }
+      await Promise.all(r.layers.map((l) => loadImage(l.src!)))
+      set({ layers: [...r.layers, ...config.layers.filter((l) => !l.fit)] })
+      const total = template.pieces.filter((p) => p.parent === undefined && p.role !== 'ignore').length
+      setNote(`Fitted ${r.matched} of your bike’s ${total} pieces from your design. Click any piece to recolour it or add more on top.`)
+    } catch {
+      setNote('We could not read that picture. Try saving it again as PNG.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="import-design">
+      <div>
+        <b>Already have a design?</b>
+        <small>Upload your kit’s print layout (PNG or JPG). We find every piece and fit it to your bike’s own template.</small>
+      </div>
+      <div className="chips">
+        <label className="btn btn-ghost btn-sm" style={{ cursor: busy ? 'wait' : 'pointer' }} aria-busy={busy}>
+          <Icon name="upload" size={16} /> {busy ? 'Fitting your design…' : fitted.length ? 'Upload another' : 'Upload design'}
+          <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={busy} onChange={(e) => pick(e.target.files?.[0])} />
+        </label>
+        {fitted.length > 0 && (
+          <button className="chip chip-sm" onClick={() => (set({ layers: config.layers.filter((l) => !l.fit) }), setNote(null))}>
+            Remove uploaded design
+          </button>
+        )}
+      </div>
+      {note && <p className="note" style={{ margin: 0 }}>{note}</p>}
+    </div>
+  )
+}
+
 // Race number and name. They are moved, resized and
 // turned on the template like any other item.
 function RiderFields() {
@@ -266,7 +326,7 @@ function RiderFields() {
 // it and adds shapes, text, logos or photos to it. The number and name are
 // set here too.
 export default function DesignStep() {
-  const { config, addLayer, updateLayer, removeLayer, moveLayer, layerTo } = useConfig()
+  const { config, set, addLayer, updateLayer, removeLayer, moveLayer, layerTo } = useConfig()
   const selected = useConfig((s) => s.selected)
   const setSelected = useConfig((s) => s.select)
   const chosen = useConfig((s) => s.panel)
@@ -284,8 +344,12 @@ export default function DesignStep() {
   const allowed: [LayerPanel, string][] = [...panelsAllowed(plates), ...pieceChoices.map((x): [LayerPanel, string] => [x.panel, x.label])]
   const panel: LayerPanel = allowed.some(([p]) => p === chosen) ? chosen : 'sidePlate'
   const name = (p: LayerPanel) => panelName(p, template)
-  const onPanel = config.layers.filter((l) => l.panel === panel)
-  const elsewhere = config.layers.length - onPanel.length
+  const own = config.layers.filter((l) => !l.fit)
+  // Uploaded-design art on the pieces of this part.
+  const partIds = new Set((template?.pieces ?? []).filter((p) => panelKey(p, template!.pieces) === panel).map((p) => `p${p.id}`))
+  const fittedHere = config.layers.filter((l) => l.fit && partIds.has(l.panel))
+  const onPanel = own.filter((l) => l.panel === panel)
+  const elsewhere = own.length - onPanel.length
 
   const add = (l: Omit<Layer, 'id' | 'panel'>) => {
     const id = newId()
@@ -323,6 +387,8 @@ export default function DesignStep() {
       <h2>Design</h2>
       <p className="lead">Click any piece on the template to work on it. Colour it, then add shapes, text, logos or photos. Drag, resize and turn them on the template; the 3D bike updates as you go.</p>
 
+      <ImportDesign />
+
       <div className="editing-now" aria-live="polite">
         <small>Editing</small>
         <b>{name(panel)}</b>
@@ -332,6 +398,14 @@ export default function DesignStep() {
           </button>
         )}
       </div>
+
+      {fittedHere.length > 0 && (
+        <div className="chips" style={{ marginBottom: 14 }}>
+          <button className="chip chip-sm" onClick={() => set({ layers: config.layers.filter((l) => !fittedHere.includes(l)) })}>
+            Remove your uploaded design from the {name(panel).toLowerCase()}
+          </button>
+        </div>
+      )}
 
       <PartColour panel={panel} />
       <PartAreas panel={panel} />
