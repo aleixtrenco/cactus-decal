@@ -30,7 +30,7 @@ Upload each model's normal cut file in `/admin` → Bike templates. The layout i
 - The real outlines are placed on the 3D bike and the proofs. Each piece gets its part of the design, so the design flows from shroud to rear fender like a printed kit.
 - The original SVG is stored privately. Only an outline copy (for the 3D preview) is public.
 
-Outline copies for these models are already included in `public/templates/` (Honda CRF250R/RX · CRF450R/RX 2025, Honda CRF1000L Africa Twin 2015–2019, Honda CRF1100L Africa Twin Adventure Sports 2020–2023, Husqvarna TC/FC/FS 2016–2022, GasGas MC 85 2021–2024, Kawasaki KX250 2025 / KX450 2024–2025). Upload the original SVGs for these in `/admin` too, so print files use the exact cut lines.
+Outline copies for these models are already included in `public/templates/` (Honda CRF250R/RX · CRF450R/RX 2025, Honda CRF1000L Africa Twin 2015–2019, Honda CRF1100L Africa Twin Adventure Sports 2020–2023, Husqvarna TC/FC/FS 2016–2022, Husqvarna TC 65 2024, Yamaha YZ85 2022–2024, GasGas MC 85 2021–2024, Kawasaki KX250 2025 / KX450 2024–2025). Upload the original SVGs for these in `/admin` too, so print files use the exact cut lines.
 
 ## 3D bike models
 
